@@ -5,6 +5,7 @@
   <title>URL Playback Monitor</title>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.5/dist/hls.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -12,15 +13,8 @@
       transition: background 0.3s, color 0.3s;
     }
 
-    body.light {
-      background: #f9f9f9;
-      color: #222;
-    }
-
-    body.dark {
-      background: #121212;
-      color: #eee;
-    }
+    body.light { background: #f9f9f9; color: #222; }
+    body.dark { background: #121212; color: #eee; }
 
     header {
       display: flex;
@@ -79,9 +73,7 @@
       margin: 10px;
     }
 
-    .hidden {
-      display: none;
-    }
+    .hidden { display: none; }
   </style>
 </head>
 <body class="light">
@@ -96,6 +88,8 @@
     <label>Columns: <input type="number" id="cols" value="2" min="1"></label>
     <label>Auto Refresh (min): <input type="number" id="refresh" value="1" min="1"></label>
     <br><br>
+    <button onclick="applyLayout()">Apply Layout</button>
+    <br><br>
     <input type="file" id="csvFile" accept=".csv">
     <p>Or drag and drop CSV anywhere on page</p>
   </div>
@@ -108,6 +102,7 @@
     let videoData = [];
     let refreshInterval;
     const grid = document.getElementById("grid");
+    const alertSound = document.getElementById("alertSound");
 
     document.body.addEventListener("dragover", e => e.preventDefault());
     document.body.addEventListener("drop", e => {
@@ -121,25 +116,34 @@
       if (file) loadCSV(file);
     });
 
+    function toggleTheme() {
+      const body = document.body;
+      body.classList.toggle("dark");
+      body.classList.toggle("light");
+    }
+
     function loadCSV(file) {
       Papa.parse(file, {
         header: false,
         skipEmptyLines: true,
         complete: function (results) {
           videoData = results.data;
-          buildGrid();
-          setupAutoRefresh();
+          alert("CSV loaded! Now click Apply Layout.");
         }
       });
     }
 
-    function buildGrid() {
+    function applyLayout() {
+      try {
+        alertSound.play().catch(() => {});
+      } catch (e) {}
+
+      clearInterval(refreshInterval);
       const rows = parseInt(document.getElementById("rows").value);
       const cols = parseInt(document.getElementById("cols").value);
       const maxBoxes = rows * cols;
       const neededBoxes = videoData.length;
       const totalBoxes = Math.max(maxBoxes, neededBoxes);
-
       grid.innerHTML = '';
 
       for (let i = 0; i < totalBoxes; i++) {
@@ -150,70 +154,65 @@
       }
 
       loadPlayers();
-    }
 
-    function loadPlayers() {
-      const alertSound = document.getElementById("alertSound");
-
-      videoData.forEach(([name, url], i) => {
-        const box = document.getElementById(`box-${i}`);
-        if (!box) return;
-        box.innerHTML = `<div><strong>${name}</strong></div><div class="media"></div><div class="alert" id="alert-${i}"></div>`;
-
-        const mediaDiv = box.querySelector(".media");
-        const alertDiv = box.querySelector(".alert");
-        alertDiv.textContent = "";
-
-        if (url.endsWith(".m3u8")) {
-          const video = document.createElement("video");
-          video.src = url;
-          video.controls = true;
-          video.autoplay = true;
-          video.onerror = () => {
-            alertDiv.textContent = "⚠️ Video error (HLS)";
-            alertSound.play();
-          };
-          mediaDiv.appendChild(video);
-        } else if (url.endsWith(".mpd")) {
-          const video = document.createElement("video");
-          video.controls = true;
-          video.autoplay = true;
-          video.onerror = () => {
-            alertDiv.textContent = "⚠️ Video error (DASH)";
-            alertSound.play();
-          };
-          dashjs.MediaPlayer().create().initialize(video, url, true);
-          mediaDiv.appendChild(video);
-        } else if (url.endsWith(".ism") || url.includes("manifest")) {
-          const iframe = document.createElement("iframe");
-          iframe.src = url;
-          iframe.onerror = () => {
-            alertDiv.textContent = "⚠️ iFrame error (Smooth)";
-            alertSound.play();
-          };
-          mediaDiv.appendChild(iframe);
-        } else {
-          const iframe = document.createElement("iframe");
-          iframe.src = url;
-          iframe.onerror = () => {
-            alertDiv.textContent = "⚠️ URL Load Failed";
-            alertSound.play();
-          };
-          mediaDiv.appendChild(iframe);
-        }
-      });
-    }
-
-    function setupAutoRefresh() {
-      clearInterval(refreshInterval);
       const mins = parseInt(document.getElementById("refresh").value) || 1;
       refreshInterval = setInterval(loadPlayers, mins * 60000);
     }
 
-    function toggleTheme() {
-      const body = document.body;
-      body.classList.toggle("dark");
-      body.classList.toggle("light");
+    function loadPlayers() {
+      videoData.forEach(([name, url], i) => {
+        const box = document.getElementById(`box-${i}`);
+        if (!box) return;
+        box.innerHTML = `<div><strong>${name}</strong></div><div class="media"></div><div class="alert" id="alert-${i}"></div>`;
+        const mediaDiv = box.querySelector(".media");
+        const alertDiv = box.querySelector(".alert");
+        alertDiv.textContent = "";
+
+        // Clean up any previous instance
+        mediaDiv.innerHTML = '';
+
+        if (url.endsWith(".m3u8")) {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.autoplay = true;
+          mediaDiv.appendChild(video);
+
+          if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.ERROR, () => {
+              alertDiv.textContent = "⚠️ HLS Playback Failed";
+              alertSound.play().catch(() => {});
+            });
+          } else {
+            video.src = url;
+            video.onerror = () => {
+              alertDiv.textContent = "⚠️ HLS Error (Native)";
+              alertSound.play().catch(() => {});
+            };
+          }
+        } else if (url.endsWith(".mpd")) {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.autoplay = true;
+          mediaDiv.appendChild(video);
+          try {
+            dashjs.MediaPlayer().create().initialize(video, url, true);
+          } catch (e) {
+            alertDiv.textContent = "⚠️ DASH Load Failed";
+            alertSound.play().catch(() => {});
+          }
+        } else {
+          const iframe = document.createElement("iframe");
+          iframe.src = url;
+          iframe.onerror = () => {
+            alertDiv.textContent = "⚠️ iFrame Load Failed";
+            alertSound.play().catch(() => {});
+          };
+          mediaDiv.appendChild(iframe);
+        }
+      });
     }
   </script>
 </body>
