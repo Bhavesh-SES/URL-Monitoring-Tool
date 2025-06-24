@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>URL Playback Monitor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    #upload-section {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    #player-count {
+      width: 60px;
+    }
+
+    .dropdown-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .video-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+      overflow-x: auto;
+    }
+
+    .video-box {
+      background: #fff;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      width: 400px;
+    }
+
+    iframe, video {
+      width: 100%;
+      height: 225px;
+    }
+
+    .alert {
+      color: red;
+      font-size: 0.9em;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>URL Playback Monitoring Tool</h2>
+
+  <div id="upload-section">
+    <input type="file" id="csvFile" accept=".csv">
+    <label for="player-count">Players:</label>
+    <input type="number" id="player-count" min="1" max="10" value="2">
+    <button onclick="generatePlayers()">Generate</button>
+  </div>
+
+  <div class="dropdown-group" id="dropdowns"></div>
+  <div class="video-container" id="videos"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    let dataMap = {};
+
+    document.getElementById('csvFile').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          dataMap = {};
+          results.data.forEach(row => {
+            dataMap[row.Name] = row.URL;
+          });
+          alert("CSV loaded. Now choose player count and generate.");
+        }
+      });
+    });
+
+    function generatePlayers() {
+      const count = parseInt(document.getElementById('player-count').value);
+      const dropdownsDiv = document.getElementById('dropdowns');
+      const videosDiv = document.getElementById('videos');
+      dropdownsDiv.innerHTML = '';
+      videosDiv.innerHTML = '';
+
+      for (let i = 0; i < count; i++) {
+        // Dropdown
+        const select = document.createElement('select');
+        select.innerHTML = `<option value="">-- Select Name --</option>`;
+        Object.keys(dataMap).forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+
+        select.onchange = function() {
+          const selected = select.value;
+          const url = dataMap[selected];
+          if (!url) return;
+
+          const box = document.getElementById(`video-box-${i}`);
+          const container = box.querySelector('.media');
+          const alertDiv = box.querySelector('.alert');
+          container.innerHTML = '';
+
+          let isVideo = /\.(mp4|m3u8|webm)$/i.test(url);
+          let element;
+
+          if (isVideo) {
+            element = document.createElement('video');
+            element.src = url;
+            element.controls = true;
+            element.autoplay = true;
+            element.onloadeddata = () => alertDiv.textContent = '';
+            element.onerror = () => alertDiv.textContent = '⚠️ Video failed to load';
+          } else {
+            element = document.createElement('iframe');
+            element.src = url;
+            element.onerror = () => alertDiv.textContent = '⚠️ iFrame failed to load';
+          }
+
+          container.appendChild(element);
+        };
+
+        dropdownsDiv.appendChild(select);
+
+        // Video Box
+        const box = document.createElement('div');
+        box.className = 'video-box';
+        box.id = `video-box-${i}`;
+        box.innerHTML = `<div class="media"></div><div class="alert"></div>`;
+        videosDiv.appendChild(box);
+      }
+    }
+  </script>
+</body>
+</html>
