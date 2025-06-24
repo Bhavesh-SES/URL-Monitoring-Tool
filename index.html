@@ -3,152 +3,217 @@
 <head>
   <meta charset="UTF-8">
   <title>URL Playback Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
       margin: 0;
+      font-family: Arial, sans-serif;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    body.light {
+      background: #f9f9f9;
+      color: #222;
+    }
+
+    body.dark {
+      background: #121212;
+      color: #eee;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+      background: #333;
+      color: #fff;
+    }
+
+    .theme-toggle {
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+
+    .controls {
+      text-align: center;
       padding: 20px;
     }
 
-    h2 {
-      text-align: center;
-    }
-
-    #upload-section {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-
-    #player-count {
-      width: 60px;
-    }
-
-    .dropdown-group {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin-bottom: 20px;
-    }
-
-    .video-container {
+    .grid {
       display: flex;
       flex-wrap: wrap;
-      gap: 20px;
       justify-content: center;
-      overflow-x: auto;
-    }
-
-    .video-box {
-      background: #fff;
+      gap: 15px;
       padding: 10px;
-      border-radius: 8px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-      width: 400px;
     }
 
-    iframe, video {
+    .player-box {
+      width: 400px;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      transition: background 0.3s;
+    }
+
+    body.dark .player-box {
+      background: #1e1e1e;
+    }
+
+    video, iframe {
       width: 100%;
       height: 225px;
+      background: black;
     }
 
     .alert {
       color: red;
-      font-size: 0.9em;
-      margin-top: 5px;
+      padding: 5px;
+      text-align: center;
+      font-size: 0.85em;
+    }
+
+    input[type="file"] {
+      margin: 10px;
+    }
+
+    .hidden {
+      display: none;
     }
   </style>
 </head>
-<body>
+<body class="light">
 
-  <h2>URL Playback Monitoring Tool</h2>
+  <header>
+    <div><strong>URL Monitor Tool</strong></div>
+    <button class="theme-toggle" onclick="toggleTheme()">🌗 Toggle Theme</button>
+  </header>
 
-  <div id="upload-section">
+  <div class="controls">
+    <label>Rows: <input type="number" id="rows" value="2" min="1"></label>
+    <label>Columns: <input type="number" id="cols" value="2" min="1"></label>
+    <label>Auto Refresh (min): <input type="number" id="refresh" value="1" min="1"></label>
+    <br><br>
     <input type="file" id="csvFile" accept=".csv">
-    <label for="player-count">Players:</label>
-    <input type="number" id="player-count" min="1" max="10" value="2">
-    <button onclick="generatePlayers()">Generate</button>
+    <p>Or drag and drop CSV anywhere on page</p>
   </div>
 
-  <div class="dropdown-group" id="dropdowns"></div>
-  <div class="video-container" id="videos"></div>
+  <div class="grid" id="grid"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <audio id="alertSound" src="alert.mp3" preload="auto"></audio>
+
   <script>
-    let dataMap = {};
+    let videoData = [];
+    let refreshInterval;
+    const grid = document.getElementById("grid");
 
-    document.getElementById('csvFile').addEventListener('change', function(e) {
-      const file = e.target.files[0];
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: function(results) {
-          dataMap = {};
-          results.data.forEach(row => {
-            dataMap[row.Name] = row.URL;
-          });
-          alert("CSV loaded. Now choose player count and generate.");
-        }
-      });
+    document.body.addEventListener("dragover", e => e.preventDefault());
+    document.body.addEventListener("drop", e => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && file.type === "text/csv") loadCSV(file);
     });
 
-    function generatePlayers() {
-      const count = parseInt(document.getElementById('player-count').value);
-      const dropdownsDiv = document.getElementById('dropdowns');
-      const videosDiv = document.getElementById('videos');
-      dropdownsDiv.innerHTML = '';
-      videosDiv.innerHTML = '';
+    document.getElementById("csvFile").addEventListener("change", function () {
+      const file = this.files[0];
+      if (file) loadCSV(file);
+    });
 
-      for (let i = 0; i < count; i++) {
-        // Dropdown
-        const select = document.createElement('select');
-        select.innerHTML = `<option value="">-- Select Name --</option>`;
-        Object.keys(dataMap).forEach(name => {
-          const opt = document.createElement('option');
-          opt.value = name;
-          opt.textContent = name;
-          select.appendChild(opt);
-        });
+    function loadCSV(file) {
+      Papa.parse(file, {
+        header: false,
+        skipEmptyLines: true,
+        complete: function (results) {
+          videoData = results.data;
+          buildGrid();
+          setupAutoRefresh();
+        }
+      });
+    }
 
-        select.onchange = function() {
-          const selected = select.value;
-          const url = dataMap[selected];
-          if (!url) return;
+    function buildGrid() {
+      const rows = parseInt(document.getElementById("rows").value);
+      const cols = parseInt(document.getElementById("cols").value);
+      const maxBoxes = rows * cols;
+      const neededBoxes = videoData.length;
+      const totalBoxes = Math.max(maxBoxes, neededBoxes);
 
-          const box = document.getElementById(`video-box-${i}`);
-          const container = box.querySelector('.media');
-          const alertDiv = box.querySelector('.alert');
-          container.innerHTML = '';
+      grid.innerHTML = '';
 
-          let isVideo = /\.(mp4|m3u8|webm)$/i.test(url);
-          let element;
-
-          if (isVideo) {
-            element = document.createElement('video');
-            element.src = url;
-            element.controls = true;
-            element.autoplay = true;
-            element.onloadeddata = () => alertDiv.textContent = '';
-            element.onerror = () => alertDiv.textContent = '⚠️ Video failed to load';
-          } else {
-            element = document.createElement('iframe');
-            element.src = url;
-            element.onerror = () => alertDiv.textContent = '⚠️ iFrame failed to load';
-          }
-
-          container.appendChild(element);
-        };
-
-        dropdownsDiv.appendChild(select);
-
-        // Video Box
-        const box = document.createElement('div');
-        box.className = 'video-box';
-        box.id = `video-box-${i}`;
-        box.innerHTML = `<div class="media"></div><div class="alert"></div>`;
-        videosDiv.appendChild(box);
+      for (let i = 0; i < totalBoxes; i++) {
+        const box = document.createElement("div");
+        box.className = "player-box";
+        box.id = `box-${i}`;
+        grid.appendChild(box);
       }
+
+      loadPlayers();
+    }
+
+    function loadPlayers() {
+      const alertSound = document.getElementById("alertSound");
+
+      videoData.forEach(([name, url], i) => {
+        const box = document.getElementById(`box-${i}`);
+        if (!box) return;
+        box.innerHTML = `<div><strong>${name}</strong></div><div class="media"></div><div class="alert" id="alert-${i}"></div>`;
+
+        const mediaDiv = box.querySelector(".media");
+        const alertDiv = box.querySelector(".alert");
+        alertDiv.textContent = "";
+
+        if (url.endsWith(".m3u8")) {
+          const video = document.createElement("video");
+          video.src = url;
+          video.controls = true;
+          video.autoplay = true;
+          video.onerror = () => {
+            alertDiv.textContent = "⚠️ Video error (HLS)";
+            alertSound.play();
+          };
+          mediaDiv.appendChild(video);
+        } else if (url.endsWith(".mpd")) {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.autoplay = true;
+          video.onerror = () => {
+            alertDiv.textContent = "⚠️ Video error (DASH)";
+            alertSound.play();
+          };
+          dashjs.MediaPlayer().create().initialize(video, url, true);
+          mediaDiv.appendChild(video);
+        } else if (url.endsWith(".ism") || url.includes("manifest")) {
+          const iframe = document.createElement("iframe");
+          iframe.src = url;
+          iframe.onerror = () => {
+            alertDiv.textContent = "⚠️ iFrame error (Smooth)";
+            alertSound.play();
+          };
+          mediaDiv.appendChild(iframe);
+        } else {
+          const iframe = document.createElement("iframe");
+          iframe.src = url;
+          iframe.onerror = () => {
+            alertDiv.textContent = "⚠️ URL Load Failed";
+            alertSound.play();
+          };
+          mediaDiv.appendChild(iframe);
+        }
+      });
+    }
+
+    function setupAutoRefresh() {
+      clearInterval(refreshInterval);
+      const mins = parseInt(document.getElementById("refresh").value) || 1;
+      refreshInterval = setInterval(loadPlayers, mins * 60000);
+    }
+
+    function toggleTheme() {
+      const body = document.body;
+      body.classList.toggle("dark");
+      body.classList.toggle("light");
     }
   </script>
 </body>
