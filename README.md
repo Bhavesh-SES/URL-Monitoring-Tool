@@ -1,7 +1,7 @@
 # URL Playback Monitoring Tool
 
 🧰 ✅ How to Use the Web-Based URL Monitoring Tool
-Link: https://bhavesh-ses.github.io/url_player/
+Link: https://bhavesh-ses.github.io/URL-Monitoring-Tool/
  
 This tool is designed to help you monitor multiple live video URLs (HLS/DASH) in seconds — with error alerts, automatic refresh, mute toggles, and a downloadable summary log of any playback issues.
 
