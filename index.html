@@ -1,302 +1,480 @@
+<!-- index.html PART 1 -->
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <title>URL Monitor Tool</title>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.5/dist/hls.min.js"></script>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      transition: background 0.3s, color 0.3s;
-    }
-    body.light { background: #f9f9f9; color: #222; }
-    body.dark { background: #121212; color: #eee; }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Stream Monitor</title>
+    <link rel="icon" href="favicon.ico">
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 20px;
-      background: #333;
-      color: #fff;
-    }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', sans-serif;
+            transition: background 0.3s, color 0.3s;
+        }
 
-    .theme-toggle, .mute-toggle, .mute-all-toggle {
-      padding: 5px 10px;
-      margin-left: 10px;
-      cursor: pointer;
-    }
+        body.dark-mode {
+            background: #121212;
+            color: #eee;
+        }
 
-    .controls {
-      text-align: center;
-      padding: 20px;
-    }
+        body.light-mode {
+            background: #f4f4f4;
+            color: #111;
+        }
 
-    .grid {
-      display: grid;
-      gap: 15px;
-      padding: 10px;
-      justify-content: center;
-    }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: #222;
+            color: white;
+        }
 
-    .player-box {
-      width: 400px;
-      background: #fff;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
+        header h1 {
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+        }
 
-    body.dark .player-box {
-      background: #1e1e1e;
-    }
+        #monkey {
+            font-size: 24px;
+            margin-left: 8px;
+            animation: bounce 1.2s infinite;
+        }
 
-    video, iframe {
-      width: 100%;
-      height: 225px;
-      background: black;
-    }
+        @keyframes bounce {
 
-    .alert {
-      color: red;
-      padding: 5px;
-      text-align: center;
-      font-size: 0.85em;
-    }
+            0%,
+            100% {
+                transform: translateY(0);
+            }
 
-    input[type="file"] {
-      margin: 10px;
-    }
+            50% {
+                transform: translateY(-6px);
+            }
+        }
 
-    .pagination, .log-download {
-      text-align: center;
-      margin: 15px;
-    }
+        .top-buttons button {
+            margin-left: 8px;
+            background: #444;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
 
-    .pagination button {
-      padding: 5px 10px;
-      margin: 5px;
-    }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px;
+            background: #333;
+            color: white;
+            align-items: center;
+        }
 
-    .log-download button {
-      padding: 8px 16px;
-      margin: 10px;
-    }
-  </style>
+        .controls input[type="number"],
+        .controls input[type="checkbox"] {
+            margin-left: 6px;
+        }
+
+        .controls label {
+            white-space: nowrap;
+        }
+
+        .controls input[type="file"]::file-selector-button {
+            background: #444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        #grid {
+            display: grid;
+            gap: 10px;
+            padding: 10px;
+        }
+
+        .player-box {
+            position: relative;
+            background: black;
+            border: 4px solid #444;
+            border-radius: 6px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            width: 100%;
+        }
+
+        .player-box video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .player-box.good {
+            border-color: green;
+        }
+
+        .player-box.buffering {
+            border-color: orange;
+        }
+
+        .player-box.error {
+            border-color: red;
+        }
+
+        .overlay-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 6px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            font-size: 12px;
+            z-index: 10;
+        }
+
+        .overlay-bar button {
+            font-size: 11px;
+            background: #222;
+            border: none;
+            color: white;
+            padding: 2px 6px;
+            margin-left: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .pagination {
+            position: fixed;
+            bottom: 8px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .search-box {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .search-box input {
+            padding: 5px;
+            font-size: 14px;
+        }
+    </style>
 </head>
-<body class="light">
 
-  <header>
-    <div><strong>URL Monitor Tool</strong></div>
-    <div>
-      <button class="theme-toggle" onclick="toggleTheme()">🌗 Theme</button>
-      <button class="mute-toggle" onclick="toggleMute()">🔔 Mute Alarm: <span id="muteStatus">OFF</span></button>
-      <button class="mute-all-toggle" onclick="toggleMuteAll()">🔇 Mute All URLs: <span id="muteAllStatus">ON</span></button>
+<body class="dark-mode">
+    <header>
+        <h1>Pro Stream Monitor <span id="monkey">🙈</span></h1>
+        <div class="top-buttons">
+            <button onclick="toggleTheme()">🌗 Theme</button>
+            <button onclick="toggleAlarm()"><span id="alarmToggle">🔔</span> Alarm</button>
+            <button onclick="toggleMuteAll()"><span id="muteToggle">🔇</span> Mute All</button>
+            <button onclick="togglePlayPause()"><span id="playToggle">⏸️</span> Pause All</button>
+            <button onclick="copyShareLink()">🔗 Share Monitoring Link</button>
+        </div>
+    </header>
+
+    <div class="controls">
+        <label>Rows: <input type="number" id="rows" min="1" value="2"></label>
+        <label>Columns: <input type="number" id="cols" min="1" value="2"></label>
+        <label>Auto Rotate: <input type="checkbox" id="autoRotate"></label>
+        <label>Every (min): <input type="number" id="rotateInterval" value="5" min="1"></label>
+        <label>Refresh (min): <input type="number" id="refresh" value="5" min="1"></label>
+        <label><input type="checkbox" id="responsiveGrid" checked> Responsive Grid</label>
+        <input type="file" id="csvFile" accept=".csv">
+        <button onclick="applyLayout()">✅ Apply Layout</button>
+        <div class="search-box">
+            <label>🔍 <input type="text" id="searchBox" placeholder="Search..." oninput="filterStreams()"></label>
+        </div>
     </div>
-  </header>
 
-  <div class="controls">
-    <label>Rows: <input type="number" id="rows" value="2" min="1"></label>
-    <label>Columns: <input type="number" id="cols" value="2" min="1"></label>
-    <label>Max Players Per Page: <input type="number" id="maxPerPage" value="6" min="1"></label>
-    <label>Auto Refresh (min): <input type="number" id="refresh" value="1" min="1"></label>
-    <br><br>
-    <button onclick="applyLayout()">Apply Layout</button>
-    <br><br>
-    <input type="file" id="csvFile" accept=".csv">
-    <p>Or drag and drop CSV anywhere on page</p>
-  </div>
+    <div id="grid" class="grid"></div>
+    <div class="pagination" id="paginationControls">
+        <button onclick="prevPage()">⬅ Prev</button>
+        <span id="pageIndicator">Page 1</span>
+        <button onclick="nextPage()">Next ➡</button>
+    </div>
+    <script>
+        let streams = [], currentPage = 0, refreshTimer, rotateTimer;
+        let isAlarmMuted = false, isAllMuted = true, isPaused = false;
 
-  <div class="grid" id="grid"></div>
-
-  <div class="pagination">
-    <button onclick="prevPage()">⬅ Prev</button>
-    <span id="pageIndicator">Page 1</span>
-    <button onclick="nextPage()">Next ➡</button>
-  </div>
-
-  <div class="log-download">
-    <button onclick="downloadLog()">📥 Download Summary Log</button>
-  </div>
-
-  <audio id="alertSound" src="alert.mp3" preload="auto"></audio>
-<script>
-  let videoData = [];
-  let refreshInterval;
-  let currentPage = 0;
-  let boxesPerPage = 6;
-  let isMuted = false;
-  let isAllMuted = true;
-  let errorLog = [];
-
-  const grid = document.getElementById("grid");
-  const alertSound = document.getElementById("alertSound");
-
-  document.body.addEventListener("dragover", e => e.preventDefault());
-  document.body.addEventListener("drop", e => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && file.type === "text/csv") loadCSV(file);
-  });
-
-  document.getElementById("csvFile").addEventListener("change", function () {
-    const file = this.files[0];
-    if (file) loadCSV(file);
-  });
-
-  function toggleTheme() {
-    document.body.classList.toggle("dark");
-    document.body.classList.toggle("light");
-  }
-
-  function toggleMute() {
-    isMuted = !isMuted;
-    document.getElementById("muteStatus").innerText = isMuted ? "ON" : "OFF";
-  }
-
-  function toggleMuteAll() {
-    isAllMuted = !isAllMuted;
-    document.getElementById("muteAllStatus").innerText = isAllMuted ? "ON" : "OFF";
-    document.querySelectorAll("video").forEach(v => v.muted = isAllMuted);
-  }
-
-  function loadCSV(file) {
-    Papa.parse(file, {
-      header: false,
-      skipEmptyLines: true,
-      complete: function (results) {
-        videoData = results.data;
-        alert("CSV loaded! Now click Apply Layout.");
-      }
-    });
-  }
-
-  function applyLayout() {
-    const rows = parseInt(document.getElementById("rows").value);
-    const cols = parseInt(document.getElementById("cols").value);
-    boxesPerPage = parseInt(document.getElementById("maxPerPage").value) || (rows * cols);
-    currentPage = 0;
-    grid.style.gridTemplateColumns = `repeat(${cols}, 400px)`;
-    setupAutoRefresh();
-    renderPage();
-  }
-
-  function setupAutoRefresh() {
-    clearInterval(refreshInterval);
-    const mins = parseInt(document.getElementById("refresh").value) || 1;
-    refreshInterval = setInterval(renderPage, mins * 60000);
-  }
-
-  function renderPage() {
-    grid.innerHTML = '';
-    const start = currentPage * boxesPerPage;
-    const end = start + boxesPerPage;
-    const pageData = videoData.slice(start, end);
-
-    document.getElementById("pageIndicator").innerText = `Page ${currentPage + 1}`;
-
-    pageData.forEach(([name, url], i) => {
-      const box = document.createElement("div");
-      box.className = "player-box";
-      box.innerHTML = `
-        <div><strong>${name}</strong></div>
-        <div class="media" id="media-${i}"></div>
-        <div class="alert" id="alert-${i}"></div>
-      `;
-      grid.appendChild(box);
-
-      const mediaDiv = box.querySelector(".media");
-      const alertDiv = box.querySelector(".alert");
-      alertDiv.textContent = "";
-
-      const timestamp = new Date().toISOString();
-
-      if (url.endsWith(".m3u8")) {
-        const video = document.createElement("video");
-        video.controls = true;
-        video.autoplay = true;
-        video.muted = isAllMuted;
-        mediaDiv.appendChild(video);
-
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hls.loadSource(url);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.ERROR, () => {
-            alertDiv.textContent = "⚠️ HLS Failed";
-            if (!isMuted) alertSound.play().catch(() => {});
-            errorLog.push({ name, url, timestamp, status: "HLS Error" });
-          });
-        } else {
-          video.src = url;
-          video.onerror = () => {
-            alertDiv.textContent = "⚠️ Native HLS Error";
-            if (!isMuted) alertSound.play().catch(() => {});
-            errorLog.push({ name, url, timestamp, status: "Native HLS Error" });
-          };
+        function playAlarm() {
+            if (!isAlarmMuted) new Audio("alert.mp3").play();
         }
-      } else if (url.endsWith(".mpd")) {
-        const video = document.createElement("video");
-        video.controls = true;
-        video.autoplay = true;
-        video.muted = isAllMuted;
-        mediaDiv.appendChild(video);
-        try {
-          dashjs.MediaPlayer().create().initialize(video, url, true);
-        } catch (e) {
-          alertDiv.textContent = "⚠️ DASH Failed";
-          if (!isMuted) alertSound.play().catch(() => {});
-          errorLog.push({ name, url, timestamp, status: "DASH Error" });
+
+        document.getElementById("csvFile").addEventListener("change", e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = evt => {
+                const parsed = Papa.parse(evt.target.result.trim()).data;
+                streams = parsed.map((r, i) => ({
+                    id: "vid" + i,
+                    name: r[0],
+                    url: r[1],
+                    status: "init",
+                    error: ""
+                }));
+                applyLayout();
+            };
+            reader.readAsText(file);
+        });
+
+        function applyLayout() {
+            clearInterval(refreshTimer);
+            clearInterval(rotateTimer);
+
+            const rows = +document.getElementById("rows").value;
+            const cols = +document.getElementById("cols").value;
+            const refresh = +document.getElementById("refresh").value * 60000;
+            const rotate = document.getElementById("autoRotate").checked;
+            const rotateInterval = +document.getElementById("rotateInterval").value * 60000;
+            const perPage = rows * cols;
+
+            const useResponsive = document.getElementById("responsiveGrid").checked;
+            const grid = document.getElementById("grid");
+            grid.style.gridTemplateColumns = useResponsive
+                ? `repeat(auto-fit, minmax(300px, 1fr))`
+                : `repeat(${cols}, 1fr)`;
+
+            currentPage = 0;
+            showPage(perPage);
+
+            refreshTimer = setInterval(() => showPage(perPage), refresh);
+            if (rotate) rotateTimer = setInterval(() => nextPage(perPage), rotateInterval);
         }
-      } else {
-        const iframe = document.createElement("iframe");
-        iframe.src = url;
-        iframe.onerror = () => {
-          alertDiv.textContent = "⚠️ iFrame Failed";
-          if (!isMuted) alertSound.play().catch(() => {});
-          errorLog.push({ name, url, timestamp, status: "Iframe Error" });
-        };
-        mediaDiv.appendChild(iframe);
-      }
-    });
-  }
 
-  function prevPage() {
-    if (currentPage > 0) {
-      currentPage--;
-      renderPage();
-    }
-  }
 
-  function nextPage() {
-    const maxPage = Math.ceil(videoData.length / boxesPerPage) - 1;
-    if (currentPage < maxPage) {
-      currentPage++;
-      renderPage();
-    }
-  }
+        function showPage(perPage) {
+            const start = currentPage * perPage;
+            const end = start + perPage;
+            const grid = document.getElementById("grid");
+            grid.innerHTML = "";
+            const search = document.getElementById("searchBox").value.toLowerCase();
 
-  function downloadLog() {
-    if (errorLog.length === 0) {
-      alert("No playback issues to download.");
-      return;
-    }
+            const pageStreams = streams
+                .filter(s => !search || s.name.toLowerCase().includes(search) || s.url.toLowerCase().includes(search))
+                .slice(start, end);
 
-    const csv = "Name,URL,Timestamp,Status\n" + errorLog.map(e =>
-      `"${e.name}","${e.url}","${e.timestamp}","${e.status}"`
-    ).join("\n");
+            pageStreams.forEach(stream => {
+                const box = document.createElement("div");
+                box.className = `player-box ${stream.status}`;
+                box.id = `box-${stream.id}`;
 
-    const blob = new Blob([csv], { type: "text/csv" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `PlaybackErrors_${new Date().toISOString()}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-</script>
+                const overlay = document.createElement("div");
+                overlay.className = "overlay-bar";
+                overlay.innerHTML = `
+          <span>${stream.name}</span>
+          <span>
+            <button onclick="captureScreenshot('${stream.id}', '${stream.name}')">📸</button>
+            <button onclick="copyToClipboard('${stream.url}')">🔗</button>
+          </span>`;
+
+                const video = document.createElement("video");
+                video.autoplay = true;
+                video.muted = isAllMuted;
+                video.controls = true;
+                video.playsInline = true;
+                video.id = stream.id;
+
+                box.appendChild(overlay);
+                box.appendChild(video);
+                grid.appendChild(box);
+
+                loadStream(video, stream);
+            });
+
+            document.getElementById("pageIndicator").textContent = `Page ${currentPage + 1}`;
+        }
+
+
+        function loadStream(video, stream) {
+            const ext = stream.url.split("?")[0].split(".").pop().toLowerCase();
+            const box = document.getElementById(`box-${stream.id}`);
+            stream.status = "init";
+            box.className = "player-box";
+
+            function updateStatus(state) {
+                stream.status = state;
+                box.className = `player-box ${state}`;
+                if (state === "error") {
+                    playAlarm();
+                    document.getElementById("monkey").textContent = "🙊";
+                } else {
+                    document.getElementById("monkey").textContent = "🙉";
+                }
+            }
+
+            async function fetchStatusAndLoad() {
+                try {
+                    const response = await fetch(stream.url, { method: "GET", mode: "cors" });
+                    if (!response.ok) {
+                        updateStatus("error");
+                        return;
+                    }
+                    loadPlayer();
+                } catch (err) {
+                    updateStatus("error");
+                }
+            }
+
+            function loadPlayer() {
+                if (ext === "m3u8" && Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(stream.url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => updateStatus("good"));
+                    hls.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) updateStatus("error");
+                    });
+                } else if (ext === "mpd") {
+                    const dash = dashjs.MediaPlayer().create();
+                    dash.initialize(video, stream.url, true);
+                    dash.attachTTMLRenderingDiv(document.createElement("div"));
+                    dash.on("streamInitialized", () => updateStatus("good"));
+                    dash.on("error", () => updateStatus("error"));
+                } else {
+                    video.src = stream.url;
+                    video.play();
+                }
+
+                video.onplay = () => updateStatus("good");
+                video.onwaiting = () => updateStatus("buffering");
+                video.onerror = () => updateStatus("error");
+            }
+
+            fetchStatusAndLoad();
+        }
+
+
+
+        function prevPage() {
+            const perPage = +document.getElementById("rows").value * +document.getElementById("cols").value;
+            if (currentPage > 0) currentPage--;
+            showPage(perPage);
+        }
+
+        function nextPage(perPage = +document.getElementById("rows").value * +document.getElementById("cols").value) {
+            const maxPage = Math.ceil(streams.length / perPage);
+            currentPage = (currentPage + 1) % maxPage;
+            showPage(perPage);
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle("dark-mode");
+            document.body.classList.toggle("light-mode");
+        }
+
+        function toggleAlarm() {
+            isAlarmMuted = !isAlarmMuted;
+            document.getElementById("alarmToggle").textContent = isAlarmMuted ? "🔕" : "🔔";
+        }
+
+        function toggleMuteAll() {
+            isAllMuted = !isAllMuted;
+            document.getElementById("muteToggle").textContent = isAllMuted ? "🔇" : "🔊";
+            streams.forEach(s => {
+                const v = document.getElementById(s.id);
+                if (v) v.muted = isAllMuted;
+            });
+        }
+
+        function togglePlayPause() {
+            isPaused = !isPaused;
+            document.getElementById("playToggle").textContent = isPaused ? "▶️" : "⏸️";
+            streams.forEach(s => {
+                const v = document.getElementById(s.id);
+                if (v) isPaused ? v.pause() : v.play();
+            });
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => alert("Copied!")).catch(() => { });
+        }
+
+        function captureScreenshot(id, name) {
+            const box = document.getElementById(`box-${id}`);
+            html2canvas(box).then(canvas => {
+                canvas.toBlob(blob => {
+                    const item = new ClipboardItem({ "image/png": blob });
+                    navigator.clipboard.write([item]).catch(() => {
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `${name}.png`;
+                        a.click();
+                    });
+                });
+            });
+        }
+
+        function copyShareLink() {
+            const csvText = streams.map(s => [s.name, s.url].join(",")).join("\n");
+            const encodedCSV = btoa(unescape(encodeURIComponent(csvText)));
+            const rows = document.getElementById("rows").value;
+            const cols = document.getElementById("cols").value;
+            const rotate = document.getElementById("autoRotate").checked ? 1 : 0;
+            const intv = document.getElementById("rotateInterval").value;
+            const refresh = document.getElementById("refresh").value;
+            const shareURL = `${location.href.split("?")[0]}?data=${encodedCSV}&rows=${rows}&cols=${cols}&rotate=${rotate}&int=${intv}&refresh=${refresh}`;
+            copyToClipboard(shareURL);
+        }
+
+
+        function parseURLParams() {
+            const params = new URLSearchParams(window.location.search);
+            const encoded = params.get("data");
+            if (encoded) {
+                const decoded = decodeURIComponent(escape(atob(encoded)));
+                const parsed = Papa.parse(decoded.trim()).data;
+                streams = parsed.map((r, i) => ({
+                    id: "vid" + i,
+                    name: r[0],
+                    url: r[1],
+                    status: "init",
+                    error: ""
+                }));
+                document.getElementById("rows").value = params.get("rows") || 2;
+                document.getElementById("cols").value = params.get("cols") || 2;
+                document.getElementById("autoRotate").checked = params.get("rotate") === "1";
+                document.getElementById("rotateInterval").value = params.get("int") || 5;
+                document.getElementById("refresh").value = params.get("refresh") || 5;
+                applyLayout();
+            }
+        }
+
+
+        function filterStreams() {
+            currentPage = 0;
+            applyLayout();
+        }
+
+        window.onload = parseURLParams;
+    </script>
 </body>
 </html>
