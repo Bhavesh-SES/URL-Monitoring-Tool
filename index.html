@@ -228,22 +228,62 @@
             if (!isAlarmMuted) new Audio("alert.mp3").play();
         }
 
+        /* ===== improved CSV upload handler (paste in place of the old listener) ===== */
         document.getElementById("csvFile").addEventListener("change", e => {
             const file = e.target.files[0];
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = evt => {
-                const parsed = Papa.parse(evt.target.result.trim()).data;
-                streams = parsed.map((r, i) => ({
-                    id: "vid" + i,
-                    name: r[0],
-                    url: r[1],
-                    status: "init",
-                    error: ""
-                }));
-                applyLayout();
-            };
-            reader.readAsText(file);
+
+            Papa.parse(file, {
+                skipEmptyLines: true,
+                complete: (results) => {
+                    const rows = results.data || [];
+                    const valid = [];
+
+                    for (let i = 0; i < rows.length; i++) {
+                        const r = rows[i];
+
+                        // handle case where row is a single string (sometimes Papa returns that)
+                        // or when CSV has more columns: take first two columns as name & url
+                        const nameRaw = (r[0] ?? "").toString();
+                        const urlRaw = (r[1] ?? "").toString();
+
+                        // remove BOM and trim
+                        const name = nameRaw.replace(/^\uFEFF/, "").trim();
+                        const url = urlRaw.replace(/^\uFEFF/, "").trim();
+
+                        // basic URL sanity check
+                        if (!name || !url) {
+                            // skip invalid rows
+                            continue;
+                        }
+
+                        // push sanitized row
+                        valid.push({ name, url });
+                    }
+
+                    if (valid.length === 0) {
+                        alert("No valid rows found in CSV. Make sure each line is: Name,URL");
+                        console.warn("CSV parse result (no valid rows):", results.data);
+                        return;
+                    }
+
+                    // map to streams structure
+                    streams = valid.map((s, i) => ({
+                        id: "vid" + i,
+                        name: s.name,
+                        url: s.url,
+                        status: "init",
+                        error: ""
+                    }));
+
+                    console.log(`Loaded ${streams.length} streams from CSV:`, streams);
+                    applyLayout(); // render immediately
+                },
+                error: (err) => {
+                    console.error("PapaParse error:", err);
+                    alert("Failed to parse CSV: " + err.message);
+                }
+            });
         });
 
         function applyLayout() {
