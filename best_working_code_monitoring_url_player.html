@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Pro Stream Monitor</title>
+    <link rel="icon" href="favicon.ico">
+
+    <!-- External libs (kept) -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #0f0f10;
+            --panel: #212326;
+            --muted: #9aa;
+            --good: #00c853;
+            --buffer: #ffb300;
+            --err: #ff1744;
+            --player-gap: 10px;
+            --min-box-height: 120px;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+            background: var(--bg-dark);
+            color: #eee;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body.light-mode {
+            background: #f5f6f7;
+            color: #111;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--panel);
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #monkey {
+            font-size: 22px;
+            display: inline-block;
+            animation: monkey-bounce 1.2s infinite
+        }
+
+        @keyframes monkey-bounce {
+
+            0%,
+            100% {
+                transform: translateY(0)
+            }
+
+            50% {
+                transform: translateY(-6px)
+            }
+        }
+
+        .top-buttons {
+            display: flex;
+            gap: 8px;
+            align-items: center
+        }
+
+        .top-buttons button {
+            background: #2a2c2f;
+            color: #fff;
+            border: 0;
+            padding: 7px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px
+        }
+
+        .top-buttons button.small {
+            padding: 5px 8px;
+            font-size: 12px
+        }
+
+        /* UTC clock visible & bold white */
+        #utcNow {
+            font-family: monospace;
+            font-weight: 700;
+            color: #fff;
+            margin-right: 8px
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 10px;
+            background: #171819;
+            flex-wrap: wrap
+        }
+
+        .controls .left {
+            display: flex;
+            gap: 8px;
+            align-items: center
+        }
+
+        .controls label {
+            font-size: 13px;
+            color: var(--muted);
+            white-space: nowrap
+        }
+
+        .controls input[type="number"] {
+            width: 60px;
+            padding: 4px;
+            border-radius: 4px;
+            border: 1px solid #333;
+            background: #0b0b0b;
+            color: #fff
+        }
+
+        .controls input[type="file"]::file-selector-button {
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: #2a2c2f;
+            color: #fff;
+            border: 0;
+            cursor: pointer
+        }
+
+        #grid {
+            display: grid;
+            gap: var(--player-gap);
+            padding: 12px;
+            align-items: start
+        }
+
+        .player-box {
+            position: relative;
+            background: #000;
+            border: 4px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+            width: 100%;
+            min-height: var(--min-box-height);
+            aspect-ratio: 16/9;
+            display: flex;
+            flex-direction: column
+        }
+
+        .player-box video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: contain;
+            background: #000
+        }
+
+        .pb-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            z-index: 20;
+            font-size: 13px
+        }
+
+        .pb-header .left {
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .pb-header .right {
+            display: flex;
+            gap: 6px;
+            align-items: center
+        }
+
+        .pb-header button {
+            background: transparent;
+            border: 0;
+            color: #fff;
+            padding: 4px 6px;
+            border-radius: 6px;
+            cursor: pointer
+        }
+
+        .player-box.good {
+            border-color: var(--good)
+        }
+
+        .player-box.buffering {
+            border-color: var(--buffer)
+        }
+
+        .player-box.error {
+            border-color: var(--err)
+        }
+
+        .player-box.audio-active {
+            border-color: var(--good) !important
+        }
+
+        .error-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 0, 0, 0.85);
+            color: #fff;
+            padding: 6px 8px;
+            font-weight: 600;
+            font-size: 12px;
+            text-align: center;
+            display: none;
+            z-index: 22
+        }
+
+        .box-stats {
+            position: absolute;
+            right: 6px;
+            bottom: 6px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #fff;
+            padding: 4px 6px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 22
+        }
+
+        .pagination {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            padding: 8px;
+            border-radius: 8px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            z-index: 9999
+        }
+
+        .pagination button {
+            background: transparent;
+            border: 0;
+            color: #fff;
+            cursor: pointer;
+            padding: 6px 8px;
+            border-radius: 6px
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9998
+        }
+
+        .modal {
+            background: var(--panel);
+            color: #fff;
+            padding: 16px;
+            border-radius: 8px;
+            width: 720px;
+            max-width: 95%;
+            max-height: 90%;
+            overflow: auto
+        }
+
+        .modal .row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 8px 0
+        }
+
+        .modal label {
+            width: 220px;
+            color: var(--muted);
+            font-size: 14px
+        }
+
+        .modal input[type="text"],
+        .modal input[type="number"],
+        .modal select {
+            padding: 6px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background: #0b0b0b;
+            color: #fff;
+            width: 160px
+        }
+
+        .modal .small {
+            width: 86px
+        }
+
+        .modal .actions {
+            display: flex;
+            justify-content: center;
+            margin-top: 12px;
+            gap: 12px
+        }
+
+        .modal .actions button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 0;
+            background: #2a2c2f;
+            color: #fff;
+            cursor: pointer
+        }
+
+        .net-widget {
+            position: fixed;
+            left: 12px;
+            bottom: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 8px 10px;
+            border-radius: 8px;
+            color: #fff;
+            display: flex;
+            gap: 1px;
+            align-items: center;
+            font-size: 13px;
+            z-index: 9999
+        }
+
+        .net-widget .value {
+            display: inline-block;
+            width: 190px;
+            text-align: left;
+            font-family: monospace
+        }
+
+        .net-widget button {
+            background: transparent;
+            border: 0;
+            color: #fff;
+            cursor: pointer;
+            margin-left: 6px
+        }
+
+        /* small responsive tweaks */
+        @media(max-width:720px) {
+            .controls {
+                padding: 8px
+            }
+
+            .modal {
+                width: 95%
+            }
+        }
+    </style>
+</head>
+
+<body class="dark-mode">
+    <header>
+        <h1>Pro Stream Monitor <span id="monkey">🙈</span></h1>
+        <div class="top-buttons">
+            <span id="utcNow">--:--:-- UTC</span>
+            <button onclick="openEditLayout()" class="small">⚙️ Edit Layout</button>
+            <button onclick="toggleTheme()" class="small">🌗 Theme</button>
+            <button onclick="toggleAlarm()" class="small"><span id="alarmToggle">🔔</span></button>
+            <button onclick="toggleMuteAll()" class="small"><span id="muteToggle">🔇</span></button>
+            <button onclick="togglePlayPause()" class="small"><span id="playToggle">⏸️</span></button>
+            <!-- FULLSCREEN button inserted between Pause and Share -->
+            <button onclick="toggleFullScreen()" id="fullscreenBtn" class="small">⛶ Full</button>
+            <button onclick="copyShareLink()" class="small">🔗 Share</button>
+        </div>
+    </header>
+
+    <div class="controls">
+        <div class="left">
+            <!-- Inline Rows/Cols/Refresh hidden (only Edit Layout is source-of-truth). kept for compatibility but hidden -->
+            <label style="display:none">Rows: <input id="rows" type="number" min="1" value="3"></label>
+            <label style="display:none">Cols: <input id="cols" type="number" min="1" value="3"></label>
+            <label style="display:none">Refresh (min): <input id="refresh" type="number" min="1" value="5"></label>
+
+            <!-- Responsive Grid unchecked by default -->
+            <label><input id="responsiveGrid" type="checkbox"> Responsive Grid</label>
+            <input id="csvFile" type="file" accept=".csv">
+            <button onclick="applyLayout()">✅ Apply Template</button>
+            <label style="margin-left:6px"><input id="fitToView" type="checkbox"> Fit to view</label>
+        </div>
+
+        <div style="margin-left:auto">
+            <label>🔍 <input id="searchBox" type="text" placeholder="Search name or URL"
+                    oninput="filterStreams()"></label>
+        </div>
+    </div>
+
+    <div id="grid"></div>
+
+    <div class="pagination" id="paginationControls">
+        <button onclick="prevPage()">⬅ Prev</button>
+        <span id="pageIndicator">Page 1</span>
+        <button onclick="nextPage()">Next ➡</button>
+    </div>
+
+    <!-- REPLACE existing net-widget block with this -->
+    <div class="net-widget" id="netWidget">
+        <div>Speed: <span class="value" id="netSpeed">0 Mbps</span></div>
+        <div>Used: <span class="value" id="netUsed">0 B</span></div>
+        <div>Since: <span class="value" id="netUsedSince">--</span></div>
+        <button title="Reset used data" onclick="resetNetUsage()">🧹</button>
+    </div>
+
+
+    <!-- Edit Layout modal -->
+    <div class="modal-backdrop" id="layoutModal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="layoutTitle">
+            <h3 id="layoutTitle">Edit Layout & Behaviour</h3>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:8px">UTC (live): <span
+                    id="modalUtcClock">--:--:-- UTC</span></div>
+
+            <div class="row">
+                <label>Rows</label>
+                <input id="m_rows" type="number" min="1" value="3">
+                <label style="width:auto;margin-left:8px">Columns</label>
+                <input id="m_cols" type="number" min="1" value="3">
+            </div>
+
+            <div class="row">
+                <label><input id="m_playerAuto" type="checkbox" checked> Player Box Size Auto</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <label style="width:auto">Templates</label>
+                    <select id="m_template">
+                        <option value="320x180">320×180</option>
+                        <option value="480x270">480×270</option>
+                        <option value="640x360">640×360</option>
+                        <option value="854x480">854×480</option>
+                        <option value="1280x720">1280×720</option>
+                        <option value="1920x1080">1920×1080</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- PART 1 ends — continue with PART 2 -->
+
+            <div class="row">
+                <label><input id="m_autoRotatePagesCheck" type="checkbox"> Enable Auto Rotate Pages</label>
+                <input id="m_autoRotatePages" type="number" min="1" value="10" class="small">
+            </div>
+
+            <div class="row">
+                <label><input id="m_autoRotateAudioCheck" type="checkbox"> Enable Auto Rotate Audio</label>
+                <input id="m_autoRotateAudio" type="number" min="1" value="2" class="small">
+            </div>
+
+            <div class="row">
+                <label><input id="m_refreshCheck" type="checkbox" checked> Enable Refresh (min)</label>
+                <input id="m_refresh" type="number" min="1" value="5" class="small">
+            </div>
+
+            <div class="row">
+                <label><input id="m_playbackFailureCheck" type="checkbox"> Enable Playback-Failure Check (min)</label>
+                <input id="m_playbackFailureInterval" type="number" min="1" value="5" class="small">
+            </div>
+
+            <div class="row">
+                <label><input id="m_moveShuffleCheck" type="checkbox"> Enable Move & Drag</label>
+            </div>
+
+            <div class="row">
+                <label>Stagger Batch</label>
+                <input id="m_staggerBatch" type="number" min="1" value="4" class="small">
+                <label style="width:auto;margin-left:8px">Delay ms</label>
+                <input id="m_staggerDelay" type="number" min="0" value="200" class="small">
+            </div>
+
+            <div class="actions">
+                <button onclick="saveLayout()">Save & Close</button>
+                <button onclick="closeEditLayout()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- hidden player template -->
+    <template id="playerTemplate">
+        <div class="player-box">
+            <div class="pb-header">
+                <div class="left">Channel</div>
+                <div class="right">
+                    <button class="btn-res" title="Quality">🔽</button>
+                    <button class="btn-snap" title="Screenshot">📸</button>
+                    <button class="btn-copy" title="Copy stream URL">🔗</button>
+                </div>
+            </div>
+            <video playsinline autoplay muted></video>
+            <div class="error-overlay"></div>
+            <div class="box-stats"></div>
+        </div>
+    </template>
+
+    <!-- PART 2 ends — continue with PART 3 (scripts) -->
+    <script>
+        /*******************************
+         * Globals & defaults
+         *******************************/
+        const DEFAULTS = {
+            rows: 3, cols: 3,
+            autoRotatePagesMin: 10, autoRotateAudioMin: 2,
+            refreshMin: 5, playbackFailureMin: 5,
+            playerAutoSize: true, template: '640x360',
+            moveShuffle: false, staggerBatch: 4, staggerDelay: 200,
+            maxGrid: 10
+        };
+
+        let streams = []; // {id, name, url, status, error, origIndex, qualityChoice, ...}
+        let currentPage = 0;
+        let refreshTimer = null, rotateTimer = null, audioRotateTimer = null, failureTimer = null;
+        let netUsedBytes = Number(localStorage.getItem('psm_used_bytes') || 0);
+        let netUsedSince = localStorage.getItem('psm_used_since') || null;
+        let isAlarmMuted = false, isAllMuted = true, isPaused = false;
+        let failureQueue = [];
+        window.__psm_accumBytes = 0; window.__psm_lastSpeed = 0;
+        let dragEnabled = false;
+
+        const gridEl = document.getElementById('grid');
+        const playerTpl = document.getElementById('playerTemplate');
+        const modal = document.getElementById('layoutModal');
+        const utcNowEl = document.getElementById('utcNow');
+        const modalUtcClock = document.getElementById('modalUtcClock');
+
+        /*******************************
+         * Utilities
+         *******************************/
+        function nowUTCString() { const d = new Date(); return d.toISOString().split('T')[1].split('.')[0] + ' UTC'; }
+        function formatBytes(n) { if (n === 0) return '0 B'; const units = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; } return `${Number(n.toFixed(2))} ${units[i]}`; }
+        function addNetBytes(n) { netUsedBytes += (n || 0); if (!netUsedSince) netUsedSince = new Date().toISOString(); saveNetUsed(); updateNetWidget(); }
+        function saveNetUsed() { localStorage.setItem('psm_used_bytes', String(netUsedBytes)); localStorage.setItem('psm_used_since', netUsedSince || new Date().toISOString()); }
+        // -------------------- REPLACE updateNetWidget --------------------
+        function updateNetWidget() {
+            // uses existing globals: netUsedBytes, window.__psm_lastSpeed
+            const elSpeed = document.getElementById('netSpeed');
+            const elUsed = document.getElementById('netUsed');
+            const elSince = document.getElementById('netUsedSince'); // new element
+            // Speed: use the last computed Mbps value (rounded)
+            const speed = Number(window.__psm_lastSpeed || 0);
+            elSpeed.textContent = `${speed.toFixed(2)} Mbps`;
+            // Used: persisted bytes
+            elUsed.textContent = formatBytes(netUsedBytes || 0);
+            // Since: show human-friendly UTC if present
+            if (netUsedSince) {
+                try {
+                    const d = new Date(netUsedSince);
+                    // format YYYY-MM-DD hh:mm:ss UTC
+                    const y = d.getUTCFullYear();
+                    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+                    const day = String(d.getUTCDate()).padStart(2, '0');
+                    const hh = String(d.getUTCHours()).padStart(2, '0');
+                    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+                    const ss = String(d.getUTCSeconds()).padStart(2, '0');
+                    elSince.textContent = `${y}-${mo}-${day} ${hh}:${mm}:${ss} UTC`;
+                } catch (e) {
+                    elSince.textContent = netUsedSince;
+                }
+            } else {
+                elSince.textContent = '--';
+            }
+        }
+
+        function setMonkey(s) { const el = document.getElementById('monkey'); if (s === 'idle') el.textContent = '🙈'; else if (s === 'loading') el.textContent = '🙉'; else if (s === 'error') el.textContent = '🙊'; }
+
+        /*******************************
+         * Audio-active marking
+         *******************************/
+        function markAudioActive() { // mark boxes green when their video is unmuted (visible ones)
+            document.querySelectorAll('.player-box.audio-active').forEach(el => el.classList.remove('audio-active'));
+            // iterate visible videos on current page
+            const rows = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value || DEFAULTS.rows);
+            const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+            const perPage = rows * cols;
+            const start = currentPage * perPage;
+            for (let i = start; i < start + perPage; i++) {
+                const s = streams[i];
+                if (!s) continue;
+                const v = document.getElementById(s.id);
+                const box = document.getElementById('box-' + s.id);
+                if (v && box) {
+                    if (!v.muted) {
+                        box.classList.add('audio-active');
+                    } else {
+                        box.classList.remove('audio-active');
+                    }
+                }
+            }
+        }
+
+        /*******************************
+         * UTC clocks
+         *******************************/
+        function startUtcClocks() { function tick() { const u = nowUTCString(); utcNowEl.textContent = u; modalUtcClock.textContent = u; } tick(); setInterval(tick, 1000); }
+        startUtcClocks();
+
+        /*******************************
+         * CSV upload (robust)
+         *******************************/
+        document.getElementById('csvFile').addEventListener('change', e => {
+            const f = e.target.files && e.target.files[0]; if (!f) return;
+            Papa.parse(f, {
+                skipEmptyLines: true, complete(results) {
+                    const rows = results.data || []; const valid = [];
+                    for (let i = 0; i < rows.length; i++) { const r = rows[i]; const name = (r[0] || '').toString().replace(/^\uFEFF/, '').trim(); const url = (r[1] || '').toString().replace(/^\uFEFF/, '').trim(); if (!name || !url) continue; valid.push({ name, url }); }
+                    if (valid.length === 0) { alert('No valid rows found in CSV. Format: Name,URL'); return; }
+                    streams = valid.map((s, i) => ({ id: `vid${i}`, name: s.name, url: s.url, status: 'init', error: '', origIndex: i, qualityChoice: 'auto' }));
+                    currentPage = 0; applyLayout();
+                }, error(err) { console.error(err); alert('CSV parse error: ' + err.message); }
+            });
+        });
+
+        /*******************************
+         * Edit Layout modal
+         *******************************/
+        function openEditLayout() {
+            document.getElementById('m_rows').value = Number(localStorage.getItem('psm_rows') || DEFAULTS.rows);
+            document.getElementById('m_cols').value = Number(localStorage.getItem('psm_cols') || DEFAULTS.cols);
+            document.getElementById('m_playerAuto').checked = (localStorage.getItem('psm_playerAuto') !== 'false');
+            document.getElementById('m_template').value = localStorage.getItem('psm_template') || DEFAULTS.template;
+            document.getElementById('m_autoRotatePagesCheck').checked = (localStorage.getItem('psm_autoRotatePages') === 'true');
+            document.getElementById('m_autoRotatePages').value = Number(localStorage.getItem('psm_autoRotatePagesMin') || DEFAULTS.autoRotatePagesMin);
+            document.getElementById('m_autoRotateAudioCheck').checked = (localStorage.getItem('psm_autoRotateAudio') === 'true');
+            document.getElementById('m_autoRotateAudio').value = Number(localStorage.getItem('psm_autoRotateAudioMin') || DEFAULTS.autoRotateAudioMin);
+            document.getElementById('m_refreshCheck').checked = (localStorage.getItem('psm_refreshEnabled') !== 'false');
+            document.getElementById('m_refresh').value = Number(localStorage.getItem('psm_refreshMin') || DEFAULTS.refreshMin);
+            document.getElementById('m_playbackFailureCheck').checked = (localStorage.getItem('psm_playbackFailure') === 'true');
+            document.getElementById('m_playbackFailureInterval').value = Number(localStorage.getItem('psm_playbackFailureMin') || DEFAULTS.playbackFailureMin);
+            document.getElementById('m_moveShuffleCheck').checked = (localStorage.getItem('psm_moveShuffle') === 'true');
+            document.getElementById('m_staggerBatch').value = Number(localStorage.getItem('psm_staggerBatch') || DEFAULTS.staggerBatch);
+            document.getElementById('m_staggerDelay').value = Number(localStorage.getItem('psm_staggerDelay') || DEFAULTS.staggerDelay);
+
+            document.getElementById('layoutModal').style.display = 'flex';
+        }
+        function closeEditLayout() { document.getElementById('layoutModal').style.display = 'none'; }
+        function saveLayout() {
+            localStorage.setItem('psm_rows', document.getElementById('m_rows').value);
+            localStorage.setItem('psm_cols', document.getElementById('m_cols').value);
+            localStorage.setItem('psm_playerAuto', document.getElementById('m_playerAuto').checked);
+            localStorage.setItem('psm_template', document.getElementById('m_template').value);
+            localStorage.setItem('psm_autoRotatePages', document.getElementById('m_autoRotatePagesCheck').checked);
+            localStorage.setItem('psm_autoRotatePagesMin', document.getElementById('m_autoRotatePages').value);
+            localStorage.setItem('psm_autoRotateAudio', document.getElementById('m_autoRotateAudioCheck').checked);
+            localStorage.setItem('psm_autoRotateAudioMin', document.getElementById('m_autoRotateAudio').value);
+            localStorage.setItem('psm_refreshEnabled', document.getElementById('m_refreshCheck').checked);
+            localStorage.setItem('psm_refreshMin', document.getElementById('m_refresh').value);
+            localStorage.setItem('psm_playbackFailure', document.getElementById('m_playbackFailureCheck').checked);
+            localStorage.setItem('psm_playbackFailureMin', document.getElementById('m_playbackFailureInterval').value);
+            localStorage.setItem('psm_moveShuffle', document.getElementById('m_moveShuffleCheck').checked);
+            localStorage.setItem('psm_staggerBatch', document.getElementById('m_staggerBatch').value);
+            localStorage.setItem('psm_staggerDelay', document.getElementById('m_staggerDelay').value);
+
+            closeEditLayout(); applyLayout();
+        }
+
+        /*******************************
+         * Apply layout
+         *******************************/
+        function applyLayout() {
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+            if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+            if (audioRotateTimer) { clearInterval(audioRotateTimer); audioRotateTimer = null; }
+            if (failureTimer) { clearInterval(failureTimer); failureTimer = null; }
+
+            const rows = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value || DEFAULTS.rows);
+            const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+            const useResponsive = document.getElementById('responsiveGrid').checked;
+            const perPage = rows * cols;
+
+            // grid columns
+            if (useResponsive) {
+                gridEl.style.gridTemplateColumns = `repeat(auto-fit, minmax(200px, 1fr))`;
+            } else {
+                gridEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            }
+
+            currentPage = 0;
+            showPage(perPage);
+
+            // refresh
+            const refreshEnabled = (localStorage.getItem('psm_refreshEnabled') !== 'false');
+            const refreshMin = Number(localStorage.getItem('psm_refreshMin') || DEFAULTS.refreshMin);
+            if (refreshEnabled) refreshTimer = setInterval(() => showPage(perPage), refreshMin * 60000);
+
+            // auto rotate pages
+            const autoRotate = (localStorage.getItem('psm_autoRotatePages') === 'true');
+            const autoRotateMin = Number(localStorage.getItem('psm_autoRotatePagesMin') || DEFAULTS.autoRotatePagesMin);
+            if (autoRotate) rotateTimer = setInterval(() => nextPage(perPage), autoRotateMin * 60000);
+
+            // audio rotate
+            const audioRotateEnabled = (localStorage.getItem('psm_autoRotateAudio') === 'true');
+            const audioRotateMin = Number(localStorage.getItem('psm_autoRotateAudioMin') || DEFAULTS.autoRotateAudioMin);
+            if (audioRotateEnabled) startAutoRotateAudio(audioRotateMin);
+
+            // failure checker
+            const failureEnabled = (localStorage.getItem('psm_playbackFailure') === 'true');
+            const failureMin = Number(localStorage.getItem('psm_playbackFailureMin') || DEFAULTS.playbackFailureMin);
+            if (failureEnabled) failureTimer = setInterval(() => playbackFailureCheck(), failureMin * 60000);
+
+            dragEnabled = (localStorage.getItem('psm_moveShuffle') === 'true');
+            // apply fitToView if enabled
+            if (document.getElementById('fitToView').checked) applyFitToView();
+        }
+
+        /*******************************
+         * Show page rendering
+         *******************************/
+        function showPage(perPage) {
+            const search = (document.getElementById('searchBox').value || '').toLowerCase();
+            const filtered = streams.filter(s => !search || s.name.toLowerCase().includes(search) || s.url.toLowerCase().includes(search));
+            const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+            if (currentPage >= totalPages) currentPage = 0;
+            gridEl.innerHTML = '';
+            setMonkey('loading');
+
+            const start = currentPage * perPage;
+            const pageStreams = filtered.slice(start, start + perPage);
+            pageStreams.forEach((s, idx) => {
+                const node = createPlayerBox(s, start + idx);
+                gridEl.appendChild(node);
+            });
+
+            document.getElementById('pageIndicator').textContent = `Page ${currentPage + 1} / ${totalPages}`;
+            startStaggeredLoad(pageStreams);
+
+            // after render ensure audio-active updated
+            setTimeout(() => markAudioActive(), 200);
+        }
+
+        /*******************************
+         * createPlayerBox
+         *******************************/
+        function createPlayerBox(stream, globalIndex) {
+            const tpl = playerTpl.content.cloneNode(true);
+            const box = tpl.querySelector('.player-box');
+            const headerLeft = tpl.querySelector('.pb-header .left');
+            const btnSnap = tpl.querySelector('.btn-snap');
+            const btnCopy = tpl.querySelector('.btn-copy');
+            const btnRes = tpl.querySelector('.btn-res');
+            const video = tpl.querySelector('video');
+            const errOverlay = tpl.querySelector('.error-overlay');
+            const stats = tpl.querySelector('.box-stats');
+
+            box.id = `box-${stream.id}`;
+            headerLeft.textContent = stream.name;
+            video.id = stream.id;
+            video.muted = isAllMuted;
+            video.controls = true;
+            video.playsInline = true;
+
+            if (stream.status === 'error') { errOverlay.style.display = 'block'; errOverlay.textContent = stream.error || 'Error'; } else errOverlay.style.display = 'none';
+
+            btnCopy.onclick = ev => { ev.stopPropagation(); copyToClipboard(stream.url); };
+            btnSnap.onclick = async ev => { ev.stopPropagation(); await takeScreenshot(box, stream.name); };
+            btnRes.onclick = ev => { ev.stopPropagation(); showQualityMenu(box, stream, video, btnRes); };
+
+            // Drag & drop
+            if (dragEnabled) {
+                box.draggable = true;
+                box.addEventListener('dragstart', ev => { ev.dataTransfer.setData('text/plain', stream.origIndex); ev.currentTarget.style.opacity = '0.5'; });
+                box.addEventListener('dragend', ev => { ev.currentTarget.style.opacity = '1'; });
+                box.addEventListener('dragover', ev => ev.preventDefault());
+                box.addEventListener('drop', ev => {
+                    ev.preventDefault();
+                    const fromOrigIndex = Number(ev.dataTransfer.getData('text/plain'));
+                    const toGlobalIndex = globalIndex; // position on page
+                    if (isNaN(fromOrigIndex)) return;
+                    moveStreamNoReload(fromOrigIndex, toGlobalIndex);
+                });
+            }
+
+            // Video events
+            video.addEventListener('play', () => updateStatus(stream, 'good', box, errOverlay, stats));
+            video.addEventListener('waiting', () => updateStatus(stream, 'buffering', box, errOverlay, stats));
+            video.addEventListener('error', () => { fetchStatusAndLoad(stream, video, box, errOverlay, stats); });
+            video.addEventListener('volumechange', () => markAudioActive());
+
+            // store references
+            stream.dom = { box, video, errOverlay, stats, headerLeft };
+
+            // adjust manual template sizing if playerAuto disabled
+            applyManualTemplateSizingToBox(box);
+
+            return box;
+        }
+
+        /*******************************
+         * Staggered load
+         *******************************/
+        function startStaggeredLoad(pageStreams) {
+            const batch = Number(localStorage.getItem('psm_staggerBatch') || DEFAULTS.staggerBatch);
+            const delay = Number(localStorage.getItem('psm_staggerDelay') || DEFAULTS.staggerDelay);
+            const toLoad = pageStreams.map(s => s);
+            let idx = 0;
+            function loadNextBatch() {
+                for (let b = 0; b < batch && idx < toLoad.length; b++, idx++) {
+                    const s = toLoad[idx];
+                    const video = document.getElementById(s.id);
+                    if (video) loadPlayer(video, s);
+                }
+                if (idx < toLoad.length) setTimeout(loadNextBatch, delay);
+            }
+            loadNextBatch();
+        }
+
+        /*******************************
+         * Load/Fetch status + cache-bust reload logic
+         *******************************/
+        async function fetchStatusAndLoad(stream, video, box, errOverlay, stats) {
+            try {
+                // try no-store to avoid 304 cached responses
+                const resp = await fetch(stream.url, { method: 'GET', mode: 'cors', cache: 'no-store' });
+                if (!resp.ok) {
+                    const msg = `HTTP ${resp.status} ${resp.statusText}`;
+                    updateStatus(stream, 'error', box, errOverlay, stats, msg);
+                    enqueueFailure(stream);
+                    return;
+                }
+                // ok -> load
+                loadPlayer(video, stream, box, errOverlay, stats);
+            } catch (err) {
+                console.warn('fetch failed', err);
+                updateStatus(stream, 'error', box, errOverlay, stats, 'CORS/Auth Error');
+                enqueueFailure(stream);
+            }
+        }
+
+        function loadPlayer(video, stream, box, errOverlay, stats) {
+            const url = stream.url;
+            const ext = url.split('?')[0].split('.').pop().toLowerCase();
+            if (!video) video = document.getElementById(stream.id);
+            if (stream.dom && stream.dom.errOverlay) stream.dom.errOverlay.style.display = 'none';
+
+            if (ext === 'm3u8' && window.Hls && Hls.isSupported()) {
+                try {
+                    const hls = new Hls();
+                    hls.attachMedia(video);
+                    hls.loadSource(url);
+                    hls.on(Hls.Events.MANIFEST_PARSED, (ev, data) => { updateStatus(stream, 'good', box, errOverlay, stats); setMonkey('loading'); stream.hls = hls; try { stream.hlsLevels = data.levels || []; } catch (e) { stream.hlsLevels = []; } });
+                    hls.on(Hls.Events.FRAG_LOADED, (_, fragData) => { try { const loaded = (fragData && fragData.stats && fragData.stats.loaded) || 0; addNetBytes(loaded); window.__psm_accumBytes = (window.__psm_accumBytes || 0) + loaded; } catch (e) { console.warn('frag load error', e); } });
+                    hls.on(Hls.Events.ERROR, (_, d) => { if (d && d.fatal) { const msg = (d.response && d.response.status) ? `manifestLoadError - ${d.response.status} ${d.response.statusText || ''}` : d.details || 'HLS Error'; updateStatus(stream, 'error', box, errOverlay, stats, msg); enqueueFailure(stream); } });
+                } catch (e) { console.warn('hls init fail', e); updateStatus(stream, 'error', box, errOverlay, stats, 'HLS Init Error'); enqueueFailure(stream); }
+            }
+            else if (ext === 'mpd' && window.dashjs) {
+                try {
+                    const player = dashjs.MediaPlayer().create();
+                    player.initialize(video, url, true);
+                    player.attachTTMLRenderingDiv(document.createElement('div'));
+                    player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+                        updateStatus(stream, 'good', box, errOverlay, stats);
+                        // attempt to extract bitrates
+                        try {
+                            let list = [];
+                            if (typeof player.getBitrateInfoListFor === 'function') list = player.getBitrateInfoListFor('video') || [];
+                            else if (typeof player.getBitrateInfoList === 'function') list = player.getBitrateInfoList() || [];
+                            else if (player.getTracksFor) { const vtracks = player.getTracksFor('video') || []; list = vtracks.map(t => ({ bitrate: t.bandwidth, width: t.width, height: t.height, codec: t.codec })); }
+                            stream.dashBitrates = list;
+                        } catch (e) { console.warn('dash bitrate list fail', e); }
+                    });
+                    player.on(dashjs.MediaPlayer.events.ERROR, e => { const msg = e && e.error ? (e.error + '') : 'DASH Error'; updateStatus(stream, 'error', box, errOverlay, stats, msg); enqueueFailure(stream); });
+                    stream.dashPlayer = player;
+                } catch (err) { console.warn('dash init err', err); updateStatus(stream, 'error', box, errOverlay, stats, 'DASH Init Error'); enqueueFailure(stream); }
+            } else {
+                // progressive / other
+                video.src = url;
+                video.play().catch(() => { });
+            }
+            // video events already wired in createPlayerBox
+        }
+
+        /*******************************
+         * status & failure queue handling
+         *******************************/
+        function updateStatus(stream, state, box, errOverlay, stats, message) {
+            stream.status = state;
+            const node = box || (stream.dom && stream.dom.box) || document.getElementById('box-' + stream.id);
+            if (!node) return;
+            node.classList.remove('good', 'buffering', 'error', 'audio-active');
+            node.classList.add(state);
+
+            const errEl = errOverlay || (stream.dom && stream.dom.errOverlay);
+            if (state === 'error') {
+                if (errEl) { errEl.style.display = 'block'; errEl.textContent = message || stream.error || 'Error'; }
+                stream.error = message || stream.error || 'Error';
+                setMonkey('error');
+                const enabled = (localStorage.getItem('psm_playbackFailure') === 'true');
+                if (enabled) enqueueFailure(stream);
+                if (!isAlarmMuted) playAlarm();
+            } else {
+                if (errEl) errEl.style.display = 'none';
+                stream.error = '';
+                setMonkey('loading');
+                if (state === 'good') { try { restoreSwappedIfRecovered(stream.origIndex); } catch (e) { console.warn('restore failed', e); } dequeueFailure(stream.origIndex); }
+            }
+
+            const v = (stream.dom && stream.dom.video) || document.getElementById(stream.id);
+            if (v && !v.muted) markAudioActive();
+            else node.classList.remove('audio-active');
+
+            const statsEl = (stream.dom && stream.dom.stats);
+            if (statsEl && state === 'good') { statsEl.textContent = (stream.qualityChoice && stream.qualityChoice !== 'auto') ? stream.qualityChoice : 'Auto'; }
+        }
+
+        function enqueueFailure(stream) {
+            if (!failureQueue.includes(stream.origIndex)) {
+                failureQueue.push(stream.origIndex);
+                processFailureQueue();
+            }
+        }
+        function dequeueFailure(origIndex) { failureQueue = failureQueue.filter(i => i !== origIndex); }
+
+        function processFailureQueue() {
+            if (failureQueue.length === 0) return;
+            // rows/cols from storage
+            let rows = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value || DEFAULTS.rows);
+            let cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+            let perPage = rows * cols;
+
+            // auto-expand until capacity >= failures, persist, capped
+            while (failureQueue.length > perPage && rows < DEFAULTS.maxGrid && cols < DEFAULTS.maxGrid) {
+                rows++; cols++;
+                perPage = rows * cols;
+            }
+            // persist final rows/cols (we persist expansion as requested)
+            localStorage.setItem('psm_rows', String(rows));
+            localStorage.setItem('psm_cols', String(cols));
+
+            // re-order streams so failures occupy top-left slots in order of queue
+            const startPos = currentPage * perPage;
+            for (let qIndex = 0; qIndex < failureQueue.length; qIndex++) {
+                const targetOrigIndex = failureQueue[qIndex];
+                const desiredGlobalPos = startPos + qIndex;
+                const currentPos = streams.findIndex(s => s.origIndex === targetOrigIndex);
+                if (currentPos === -1) continue;
+                if (currentPos === desiredGlobalPos) continue;
+                const [item] = streams.splice(currentPos, 1);
+                const insertAt = Math.min(Math.max(0, desiredGlobalPos), streams.length);
+                streams.splice(insertAt, 0, item);
+            }
+            // re-render current page to show reordered failures
+            const perPageNow = perPage;
+            showPage(perPageNow);
+
+            // after rendering, attempt a cache-busted reload for the failures placed on this page
+            setTimeout(() => { reloadFailuresOnCurrentPage(); }, 300);
+        }
+
+        function reloadFailuresOnCurrentPage() {
+            const rows = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value || DEFAULTS.rows);
+            const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+            const perPage = rows * cols;
+            const start = currentPage * perPage;
+            for (let i = start; i < start + perPage; i++) {
+                const s = streams[i];
+                if (!s) continue;
+                if (s.status === 'error') {
+                    // attempt cache-busted re-init
+                    forceReloadStream(s);
+                }
+            }
+        }
+
+        function restoreSwappedIfRecovered(streamOrigIndex) {
+            const sIndex = streams.findIndex(s => s.origIndex === streamOrigIndex);
+            if (sIndex === -1) return;
+            const s = streams[sIndex];
+            if (!s.swappedWith) return;
+            const otherIndex = streams.findIndex(x => x.origIndex === s.swappedWith);
+            if (otherIndex === -1) { s.swappedWith = null; return; }
+            [streams[sIndex], streams[otherIndex]] = [streams[otherIndex], streams[sIndex]];
+            streams[otherIndex].swappedWith = null; streams[sIndex].swappedWith = null;
+            dequeueFailure(s.origIndex);
+            const perPage = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value) * Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value);
+            showPage(perPage);
+        }
+
+        /*******************************
+         * playback failure check (periodic)
+         *******************************/
+        async function playbackFailureCheck() {
+            for (const s of streams) {
+                try {
+                    const resp = await fetch(s.url, { method: 'GET', mode: 'cors', cache: 'no-store' });
+                    if (!resp.ok) {
+                        updateStatus(s, 'error', (s.dom && s.dom.box), (s.dom && s.dom.errOverlay), (s.dom && s.dom.stats), `HTTP ${resp.status} ${resp.statusText}`);
+                        enqueueFailure(s);
+                    } else {
+                        if (s.status === 'error') updateStatus(s, 'good', (s.dom && s.dom.box), (s.dom && s.dom.errOverlay), (s.dom && s.dom.stats));
+                        restoreSwappedIfRecovered(s.origIndex);
+                    }
+                } catch (err) {
+                    updateStatus(s, 'error', (s.dom && s.dom.box), (s.dom && s.dom.errOverlay), (s.dom && s.dom.stats), 'CORS/Auth Error');
+                    enqueueFailure(s);
+                }
+            }
+            processFailureQueue();
+        }
+
+        /*******************************
+         * Quality menu
+         *******************************/
+        function showQualityMenu(box, stream, video, anchorBtn) {
+            const list = [];
+            if (stream.hlsLevels && stream.hlsLevels.length) stream.hlsLevels.forEach((l, i) => list.push({ id: `hls-${i}`, label: `${l.height}p (${Math.round((l.bitrate || 0) / 1000)}kbps)`, source: { type: 'hls', level: i } }));
+            else if (stream.dashBitrates && stream.dashBitrates.length) stream.dashBitrates.forEach((b, i) => list.push({ id: `dash-${i}`, label: `${b.width || b.height || b.bitrate}px (${Math.round((b.bitrate || b.bandwidth || 0) / 1000)}kbps)`, source: { type: 'dash', index: i } }));
+            list.unshift({ id: 'auto', label: 'Auto', source: { type: 'auto' } });
+
+            const pop = document.createElement('div');
+            pop.style.position = 'absolute'; pop.style.zIndex = 9999; pop.style.background = '#222'; pop.style.color = '#fff'; pop.style.padding = '6px'; pop.style.border = '1px solid #333'; pop.style.borderRadius = '6px';
+            list.forEach(item => {
+                const opt = document.createElement('div'); opt.textContent = item.label; opt.style.padding = '6px'; opt.style.cursor = 'pointer';
+                opt.onclick = (ev) => {
+                    ev.stopPropagation();
+                    try {
+                        if (item.source.type === 'hls') { if (stream.hls) { if (item.id === 'auto') stream.hls.currentLevel = -1; else stream.hls.currentLevel = item.source.level; stream.qualityChoice = item.label; } }
+                        else if (item.source.type === 'dash') {
+                            const player = stream.dashPlayer;
+                            try {
+                                if (item.id === 'auto') {
+                                    if (player.setAutoSwitchQualityFor) player.setAutoSwitchQualityFor('video', true);
+                                    else if (player.setAutoSwitchQuality) player.setAutoSwitchQuality(true);
+                                } else {
+                                    if (typeof player.setQualityFor === 'function') player.setQualityFor('video', item.source.index);
+                                    else if (typeof player.setBitrateFor === 'function') player.setBitrateFor('video', item.source.index);
+                                    else if (player.getTracksFor) {
+                                        const tracks = player.getTracksFor('video') || [];
+                                        if (tracks[item.source.index] && typeof player.setCurrentTrack === 'function') player.setCurrentTrack(tracks[item.source.index]);
+                                        else throw new Error('Dash setQuality API missing');
+                                    } else throw new Error('Dash setQuality API missing');
+                                }
+                                stream.qualityChoice = item.label;
+                            } catch (e) { console.warn('dash quality set failed', e); alert('DASH quality switch not supported in this dash.js build'); }
+                        } else { stream.qualityChoice = 'Auto'; }
+                    } catch (e) { console.warn('quality set err', e); }
+                    if (document.body.contains(pop)) document.body.removeChild(pop);
+                };
+                pop.appendChild(opt);
+            });
+
+            const rect = anchorBtn.getBoundingClientRect();
+            pop.style.left = `${rect.left}px`; pop.style.top = `${rect.bottom + 6}px`;
+            document.body.appendChild(pop);
+            function docClick() { if (document.body.contains(pop)) document.body.removeChild(pop); document.removeEventListener('click', docClick); }
+            setTimeout(() => document.addEventListener('click', docClick), 10);
+        }
+
+        /*******************************
+         * Screenshot & clipboard
+         *******************************/
+        async function takeScreenshot(box, name) {
+            try {
+                const header = box.querySelector('.pb-header');
+                const rightButtons = box.querySelectorAll('.pb-header .right > button');
+                const statsEl = box.querySelector('.box-stats');
+                rightButtons.forEach(b => b.style.visibility = 'hidden');
+                if (statsEl) statsEl.style.visibility = 'hidden';
+
+                // append UTC on right in header
+                const utcSpan = document.createElement('div'); utcSpan.className = 'temp-utc'; utcSpan.style.color = '#fff'; utcSpan.style.fontSize = '12px'; utcSpan.style.fontFamily = 'monospace'; utcSpan.style.paddingLeft = '8px'; utcSpan.style.alignSelf = 'flex-end';
+                utcSpan.textContent = nowUTCString();
+                header.querySelector('.right').appendChild(utcSpan);
+
+                // take screenshot
+                const canvas = await html2canvas(box, { useCORS: true, backgroundColor: null, scale: 2 });
+                await new Promise(res => canvas.toBlob(res));
+                canvas.toBlob(async (blob) => {
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+                            const item = new ClipboardItem({ "image/png": blob });
+                            await navigator.clipboard.write([item]);
+                            alert('Screenshot copied to clipboard');
+                        } else throw new Error('Clipboard API not available');
+                    } catch (e) {
+                        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${name.replace(/\s+/g, '_')}_${(new Date()).toISOString().replace(/[:.]/g, '-')}.png`; a.click();
+                    } finally {
+                        utcSpan.remove(); rightButtons.forEach(b => b.style.visibility = 'visible'); if (statsEl) statsEl.style.visibility = 'visible';
+                    }
+                });
+            } catch (err) { console.error('screenshot error', err); alert('Screenshot failed: ' + (err.message || err)); box.querySelectorAll('.pb-header .right > button').forEach(b => b.style.visibility = 'visible'); const statsEl = box.querySelector('.box-stats'); if (statsEl) statsEl.style.visibility = 'visible'; }
+        }
+
+        /*******************************
+         * copyToClipboard (URL)
+         *******************************/
+        function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => alert('Copied to clipboard')).catch(() => { alert('Copy failed'); }); }
+
+        /*******************************
+         * Move stream in-place without reload
+         *******************************/
+        function moveStreamNoReload(fromOrigIndex, toGlobalIndex) {
+            const fromIdx = streams.findIndex(s => s.origIndex === fromOrigIndex); if (fromIdx === -1) return;
+            const rows = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value || DEFAULTS.rows);
+            const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+            const perPage = rows * cols;
+            const insertAt = (currentPage * perPage) + (toGlobalIndex % perPage);
+            const [item] = streams.splice(fromIdx, 1); streams.splice(Math.min(Math.max(0, insertAt), streams.length), 0, item);
+            // reorder DOM child (if present)
+            const fromBox = document.getElementById(`box-${item.id}`);
+            const gridChildren = Array.from(gridEl.children);
+            if (fromBox && gridEl.contains(fromBox)) {
+                const destChild = gridChildren[insertAt] || null;
+                if (destChild && destChild !== fromBox) gridEl.insertBefore(fromBox, destChild);
+                else gridEl.appendChild(fromBox);
+            }
+            try { localStorage.setItem('psm_streams_order', JSON.stringify(streams.map(s => s.url))); } catch (e) { }
+        }
+
+        /*******************************
+         * Auto-rotate audio
+         *******************************/
+        function startAutoRotateAudio(mins) {
+            if (audioRotateTimer) clearInterval(audioRotateTimer);
+            let idx = 0;
+            const perPage = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value) * Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value);
+            function rotateOnce() {
+                // mute all visible
+                streams.forEach(s => { const v = document.getElementById(s.id); if (v) v.muted = true; });
+                const start = currentPage * perPage;
+                const filtered = streams.slice(start, start + perPage);
+                if (filtered.length === 0) return;
+                const target = filtered[idx % filtered.length];
+                const v = document.getElementById(target.id);
+                if (v) { v.muted = false; v.play().catch(() => { }); markAudioActive(); }
+                idx++;
+            }
+            rotateOnce();
+            audioRotateTimer = setInterval(() => rotateOnce(), mins * 60000);
+        }
+
+        /*******************************
+         * Net usage: reset & init
+         *******************************/
+        function resetNetUsage() { netUsedBytes = 0; netUsedSince = new Date().toISOString(); saveNetUsed(); updateNetWidget(); }
+
+        // -------------------- REPLACE initNetFromStorage --------------------
+        function initNetFromStorage() {
+            // restore persisted values
+            netUsedBytes = Number(localStorage.getItem('psm_used_bytes') || 0);
+            netUsedSince = localStorage.getItem('psm_used_since') || null;
+            window.__psm_accumBytes = 0;
+            window.__psm_lastSpeed = 0;
+            updateNetWidget();
+
+            /***********************
+             * Install best-effort instrumentation:
+             * - patch XMLHttpRequest to count bytes via progress events
+             * - patch fetch to use content-length if present or clone+arrayBuffer fallback
+             ***********************/
+            (function installNetworkInstrumentation() {
+                try {
+                    // XHR hooks
+                    const origOpen = XMLHttpRequest.prototype.open;
+                    const origSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function (method, url, async, user, pass) {
+                        try { this._psm_url = url; } catch (e) { }
+                        return origOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function (body) {
+                        try {
+                            this.addEventListener('progress', (ev) => {
+                                try {
+                                    const loaded = ev.loaded || 0;
+                                    const diff = loaded - (this._psm_lastLoaded || 0);
+                                    if (diff > 0) {
+                                        // update aggregates
+                                        addNetBytes(diff);
+                                        window.__psm_accumBytes = (window.__psm_accumBytes || 0) + diff;
+                                    }
+                                    this._psm_lastLoaded = loaded;
+                                } catch (e) { /* best-effort */ }
+                            });
+                        } catch (e) { /* best-effort */ }
+                        return origSend.apply(this, arguments);
+                    };
+
+                    // fetch wrapper
+                    if (window.fetch) {
+                        const origFetch = window.fetch.bind(window);
+                        window.fetch = function (...args) {
+                            return origFetch(...args).then(async (resp) => {
+                                try {
+                                    // if response has content-length header, use it
+                                    const cl = resp.headers && resp.headers.get ? resp.headers.get('content-length') : null;
+                                    if (cl && !isNaN(cl)) {
+                                        const n = parseInt(cl, 10);
+                                        if (n > 0) {
+                                            addNetBytes(n);
+                                            window.__psm_accumBytes = (window.__psm_accumBytes || 0) + n;
+                                        }
+                                    } else {
+                                        // fallback: try to read clone body size (best-effort). Opaque responses may fail.
+                                        try {
+                                            const clone = resp.clone();
+                                            const ab = await clone.arrayBuffer();
+                                            const n = (ab && ab.byteLength) ? ab.byteLength : 0;
+                                            if (n > 0) {
+                                                addNetBytes(n);
+                                                window.__psm_accumBytes = (window.__psm_accumBytes || 0) + n;
+                                            }
+                                        } catch (e) {
+                                            // can't measure (CORS/opaque or stream already consumed) -> ignore
+                                        }
+                                    }
+                                } catch (e) {
+                                    // swallow instrumentation errors
+                                    console.warn('psm: fetch instrumentation error', e);
+                                }
+                                return resp;
+                            }).catch(err => { throw err; });
+                        };
+                    }
+                } catch (e) {
+                    console.warn('psm: network instrumentation failed', e);
+                }
+            })();
+
+            // every second compute Mbps from accumulated bytes and reset accumulator
+            setInterval(() => {
+                const bytes = window.__psm_accumBytes || 0;
+                const mbps = +((bytes * 8) / 1000000).toFixed(3); // Mbps
+                window.__psm_lastSpeed = mbps;
+                // reset accumulator so that next tick measures fresh bytes
+                window.__psm_accumBytes = 0;
+                updateNetWidget();
+            }, 1000);
+        }
+
+
+        /*******************************
+         * Pagination
+         *******************************/
+        function prevPage() { const perPage = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value) * Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value); if (currentPage > 0) currentPage--; showPage(perPage); }
+        function nextPage(perPageArg) { const perPage = perPageArg || (Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value) * Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value)); const filtered = streams.filter(s => { const search = (document.getElementById('searchBox').value || '').toLowerCase(); return !search || s.name.toLowerCase().includes(search) || s.url.toLowerCase().includes(search); }); const totalPages = Math.max(1, Math.ceil(filtered.length / perPage)); currentPage = (currentPage + 1) % totalPages; showPage(perPage); }
+
+        /*******************************
+         * Theme & toggles
+         *******************************/
+        function toggleTheme() { document.body.classList.toggle('light-mode'); }
+        function toggleAlarm() { isAlarmMuted = !isAlarmMuted; document.getElementById('alarmToggle').textContent = isAlarmMuted ? '🔕' : '🔔'; }
+        function toggleMuteAll() { isAllMuted = !isAllMuted; document.getElementById('muteToggle').textContent = isAllMuted ? '🔇' : '🔊'; streams.forEach(s => { const v = document.getElementById(s.id); if (v) v.muted = isAllMuted; }); markAudioActive(); }
+        function togglePlayPause() { isPaused = !isPaused; document.getElementById('playToggle').textContent = isPaused ? '▶️' : '⏸️'; streams.forEach(s => { const v = document.getElementById(s.id); if (v) isPaused ? v.pause() : v.play(); }); }
+
+        /*******************************
+         * Share link encode/decode
+         *******************************/
+        function copyShareLink() {
+            const csvText = streams.map(s => [s.name, s.url].join(',')).join('\n');
+            const encodedCSV = btoa(unescape(encodeURIComponent(csvText)));
+            const params = new URLSearchParams();
+            params.set('data', encodedCSV);
+            params.set('rows', localStorage.getItem('psm_rows') || document.getElementById('m_rows').value);
+            params.set('cols', localStorage.getItem('psm_cols') || document.getElementById('m_cols').value);
+            params.set('autoRotatePages', localStorage.getItem('psm_autoRotatePages') || 'false');
+            params.set('autoRotatePagesMin', localStorage.getItem('psm_autoRotatePagesMin') || DEFAULTS.autoRotatePagesMin);
+            params.set('playerAuto', localStorage.getItem('psm_playerAuto') || 'true');
+            const url = `${location.href.split('?')[0]}?${params.toString()}`;
+            copyToClipboard(url);
+        }
+
+        function parseURLParamsOnLoad() {
+            const params = new URLSearchParams(window.location.search);
+            const encoded = params.get('data');
+            if (encoded) {
+                try {
+                    const decoded = decodeURIComponent(escape(atob(encoded)));
+                    const parsed = Papa.parse(decoded.trim()).data;
+                    streams = parsed.map((r, i) => ({ id: `vid${i}`, name: (r[0] || '').toString(), url: (r[1] || '').toString(), status: 'init', error: '', origIndex: i, currentIndex: i, swappedWith: null, qualityChoice: 'auto' }));
+                    if (params.get('rows')) localStorage.setItem('psm_rows', params.get('rows'));
+                    if (params.get('cols')) localStorage.setItem('psm_cols', params.get('cols'));
+                    if (params.get('autoRotatePages')) localStorage.setItem('psm_autoRotatePages', params.get('autoRotatePages'));
+                    if (params.get('autoRotatePagesMin')) localStorage.setItem('psm_autoRotatePagesMin', params.get('autoRotatePagesMin'));
+                    applyLayout();
+                } catch (e) { console.error('share link decode failed', e); }
+            }
+        }
+
+        /*******************************
+         * Filter / search
+         *******************************/
+        function filterStreams() { currentPage = 0; const perPage = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value) * Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value); showPage(perPage); }
+
+        /*******************************
+         * Fullscreen / Fit-to-view
+         *******************************/
+        async function toggleFullScreen() {
+            try {
+                if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+                else await document.exitFullscreen();
+            } catch (e) { console.warn('fs toggle err', e); }
+        }
+
+        function applyFitToView() {
+            // compute available height and width excluding header and controls
+            const headerRect = document.querySelector('header').getBoundingClientRect();
+            const controlsRect = document.querySelector('.controls').getBoundingClientRect();
+            const padding = 24; // some margin
+            const availableHeight = window.innerHeight - headerRect.height - controlsRect.height - padding - 60; // keep space for pagination/net widget
+            const availableWidth = window.innerWidth - 24;
+            const rows = Number(localStorage.getItem('psm_rows') || document.getElementById('m_rows').value || DEFAULTS.rows);
+            const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+
+            // allowed per-box size
+            const allowedH = availableHeight / rows;
+            const allowedW = availableWidth / cols;
+            // width derived from height while preserving 16:9
+            const widthFromHeight = allowedH * (16 / 9);
+            const chosenWidth = Math.max(120, Math.floor(Math.min(allowedW, widthFromHeight)));
+            const chosenHeight = Math.round(chosenWidth * 9 / 16);
+
+            // set CSS grid to fixed px columns for exact fit
+            gridEl.style.gridTemplateColumns = `repeat(${cols}, ${chosenWidth}px)`;
+            // set boxes size
+            document.querySelectorAll('#grid .player-box').forEach(box => {
+                box.style.width = `${chosenWidth}px`;
+                box.style.height = `${chosenHeight}px`;
+                box.style.aspectRatio = 'auto';
+            });
+        }
+
+        // remove fit-to-view sizing (restore auto)
+        function clearFitToView() {
+            document.querySelectorAll('#grid .player-box').forEach(box => {
+                box.style.width = '';
+                box.style.height = '';
+                box.style.aspectRatio = '16/9';
+            });
+            const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+            const useResponsive = document.getElementById('responsiveGrid').checked;
+            if (useResponsive) gridEl.style.gridTemplateColumns = `repeat(auto-fit, minmax(200px, 1fr))`;
+            else gridEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+        }
+
+        // watch fitToView toggle
+        document.getElementById('fitToView').addEventListener('change', (e) => {
+            if (e.target.checked) applyFitToView();
+            else clearFitToView();
+        });
+
+        // window resize reapply fitToView if active
+        window.addEventListener('resize', () => {
+            if (document.getElementById('fitToView').checked) applyFitToView();
+        });
+
+        /*******************************
+         * force reload stream (cache-bust)
+         *******************************/
+        function forceReloadStream(stream) {
+            const cacheBust = (stream.url.includes('?') ? '&' : '?') + '_cb=' + Date.now();
+            const cbUrl = stream.url + cacheBust;
+            // for HLS
+            if (stream.hls) {
+                try { stream.hls.stopLoad(); stream.hls.loadSource(cbUrl); stream.hls.startLoad(); } catch (e) { console.warn('hls reload fail', e); }
+            } else if (stream.dashPlayer) {
+                try { stream.dashPlayer.reset(); stream.dashPlayer.initialize(stream.dom.video, cbUrl, true); } catch (e) { console.warn('dash reload fail', e); }
+            } else {
+                try { const v = document.getElementById(stream.id); if (v) { v.src = cbUrl; v.load(); v.play().catch(() => { }); } } catch (e) { console.warn('video reload fail', e); }
+            }
+        }
+
+        function reloadStatusForStream(stream) {
+            // attempt fresh fetch no-store then reload player if ok
+            fetch(stream.url, { method: 'GET', mode: 'cors', cache: 'no-store' }).then(resp => {
+                if (resp.ok) forceReloadStream(stream);
+            }).catch(() => { /* ignore */ });
+        }
+
+        /*******************************
+         * apply manual template sizing
+         *******************************/
+        function applyManualTemplateSizingToBox(box) {
+            const auto = (localStorage.getItem('psm_playerAuto') !== 'false');
+            if (!auto) {
+                const template = localStorage.getItem('psm_template') || document.getElementById('m_template').value || DEFAULTS.template;
+                const parts = (template || '640x360').split('x');
+                const w = parseInt(parts[0]) || 640;
+                const h = parseInt(parts[1]) || Math.round(w * 9 / 16);
+                // set element fixed width and height (height preserve 16:9)
+                box.style.width = w + 'px';
+                box.style.height = h + 'px';
+                box.style.aspectRatio = 'auto';
+                // make grid template columns fixed so boxes don't stretch
+                const cols = Number(localStorage.getItem('psm_cols') || document.getElementById('m_cols').value || DEFAULTS.cols);
+                gridEl.style.gridTemplateColumns = `repeat(${cols}, ${w}px)`;
+            } else {
+                box.style.width = ''; box.style.height = ''; box.style.aspectRatio = '16/9';
+            }
+        }
+
+        function applyManualTemplateSizingToAll() {
+            document.querySelectorAll('#grid .player-box').forEach(box => applyManualTemplateSizingToBox(box));
+        }
+
+        /*******************************
+         * reload failures helper
+         *******************************/
+        function reloadFailuresOnPageAfterCheck() {
+            reloadFailuresOnCurrentPage();
+        }
+
+        /*******************************
+         * play alarm (uses alert.mp3 from same repo)
+         *******************************/
+        function playAlarm() { if (!isAlarmMuted) { try { const a = new Audio('./alert.mp3'); a.play().catch(() => { }); } catch (e) { console.warn('alarm play fail', e); } } }
+
+        /*******************************
+         * force init on load
+         *******************************/
+        window.addEventListener('load', () => {
+            parseURLParamsOnLoad(); initNetFromStorage(); // responsive default unchecked
+            document.getElementById('responsiveGrid').checked = false;
+        });
+
+        // expose functions globally for debugging / manual usage
+        window.applyLayout = applyLayout; window.prevPage = prevPage; window.nextPage = nextPage;
+        window.openEditLayout = openEditLayout; window.closeEditLayout = closeEditLayout; window.saveLayout = saveLayout;
+        window.toggleTheme = toggleTheme; window.toggleAlarm = toggleAlarm; window.toggleMuteAll = toggleMuteAll; window.togglePlayPause = togglePlayPause;
+        window.copyToClipboard = copyToClipboard; window.takeScreenshot = takeScreenshot; window.resetNetUsage = resetNetUsage;
+        window.forceReloadStream = forceReloadStream; window.markAudioActive = markAudioActive;
+
+        // hide inline rows/cols/refresh labels (controls become minimal UI)
+        (function hideInlineLayoutControls() {
+            const labels = document.querySelectorAll('.controls label');
+            labels.forEach(l => { const t = (l.textContent || '').trim().toLowerCase(); if (t.startsWith('rows') || t.startsWith('cols') || t.startsWith('refresh')) l.style.display = 'none'; });
+            ['rows', 'cols', 'refresh'].forEach(id => { const el = document.getElementById(id); if (el && el.parentElement) el.parentElement.style.display = 'none'; });
+        })();
+
+    </script>
+</body>
+
+</html>
