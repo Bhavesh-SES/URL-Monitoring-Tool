@@ -1,0 +1,520 @@
+<!-- index.html PART 1 -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Stream Monitor</title>
+    <link rel="icon" href="favicon.ico">
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', sans-serif;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        body.dark-mode {
+            background: #121212;
+            color: #eee;
+        }
+
+        body.light-mode {
+            background: #f4f4f4;
+            color: #111;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: #222;
+            color: white;
+        }
+
+        header h1 {
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        #monkey {
+            font-size: 24px;
+            margin-left: 8px;
+            animation: bounce 1.2s infinite;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-6px);
+            }
+        }
+
+        .top-buttons button {
+            margin-left: 8px;
+            background: #444;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px;
+            background: #333;
+            color: white;
+            align-items: center;
+        }
+
+        .controls input[type="number"],
+        .controls input[type="checkbox"] {
+            margin-left: 6px;
+        }
+
+        .controls label {
+            white-space: nowrap;
+        }
+
+        .controls input[type="file"]::file-selector-button {
+            background: #444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        #grid {
+            display: grid;
+            gap: 10px;
+            padding: 10px;
+        }
+
+        .player-box {
+            position: relative;
+            background: black;
+            border: 4px solid #444;
+            border-radius: 6px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            width: 100%;
+        }
+
+        .player-box video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .player-box.good {
+            border-color: green;
+        }
+
+        .player-box.buffering {
+            border-color: orange;
+        }
+
+        .player-box.error {
+            border-color: red;
+        }
+
+        .overlay-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 6px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            font-size: 12px;
+            z-index: 10;
+        }
+
+        .overlay-bar button {
+            font-size: 11px;
+            background: #222;
+            border: none;
+            color: white;
+            padding: 2px 6px;
+            margin-left: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .pagination {
+            position: fixed;
+            bottom: 8px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .search-box {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .search-box input {
+            padding: 5px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body class="dark-mode">
+    <header>
+        <h1>Pro Stream Monitor <span id="monkey">🙈</span></h1>
+        <div class="top-buttons">
+            <button onclick="toggleTheme()">🌗 Theme</button>
+            <button onclick="toggleAlarm()"><span id="alarmToggle">🔔</span> Alarm</button>
+            <button onclick="toggleMuteAll()"><span id="muteToggle">🔇</span> Mute All</button>
+            <button onclick="togglePlayPause()"><span id="playToggle">⏸️</span> Pause All</button>
+            <button onclick="copyShareLink()">🔗 Share Monitoring Link</button>
+        </div>
+    </header>
+
+    <div class="controls">
+        <label>Rows: <input type="number" id="rows" min="1" value="2"></label>
+        <label>Columns: <input type="number" id="cols" min="1" value="2"></label>
+        <label>Auto Rotate: <input type="checkbox" id="autoRotate"></label>
+        <label>Every (min): <input type="number" id="rotateInterval" value="5" min="1"></label>
+        <label>Refresh (min): <input type="number" id="refresh" value="5" min="1"></label>
+        <label><input type="checkbox" id="responsiveGrid" checked> Responsive Grid</label>
+        <input type="file" id="csvFile" accept=".csv">
+        <button onclick="applyLayout()">✅ Apply Layout</button>
+        <div class="search-box">
+            <label>🔍 <input type="text" id="searchBox" placeholder="Search..." oninput="filterStreams()"></label>
+        </div>
+    </div>
+
+    <div id="grid" class="grid"></div>
+    <div class="pagination" id="paginationControls">
+        <button onclick="prevPage()">⬅ Prev</button>
+        <span id="pageIndicator">Page 1</span>
+        <button onclick="nextPage()">Next ➡</button>
+    </div>
+    <script>
+        let streams = [], currentPage = 0, refreshTimer, rotateTimer;
+        let isAlarmMuted = false, isAllMuted = true, isPaused = false;
+
+        function playAlarm() {
+            if (!isAlarmMuted) new Audio("alert.mp3").play();
+        }
+
+        /* ===== improved CSV upload handler (paste in place of the old listener) ===== */
+        document.getElementById("csvFile").addEventListener("change", e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            Papa.parse(file, {
+                skipEmptyLines: true,
+                complete: (results) => {
+                    const rows = results.data || [];
+                    const valid = [];
+
+                    for (let i = 0; i < rows.length; i++) {
+                        const r = rows[i];
+
+                        // handle case where row is a single string (sometimes Papa returns that)
+                        // or when CSV has more columns: take first two columns as name & url
+                        const nameRaw = (r[0] ?? "").toString();
+                        const urlRaw = (r[1] ?? "").toString();
+
+                        // remove BOM and trim
+                        const name = nameRaw.replace(/^\uFEFF/, "").trim();
+                        const url = urlRaw.replace(/^\uFEFF/, "").trim();
+
+                        // basic URL sanity check
+                        if (!name || !url) {
+                            // skip invalid rows
+                            continue;
+                        }
+
+                        // push sanitized row
+                        valid.push({ name, url });
+                    }
+
+                    if (valid.length === 0) {
+                        alert("No valid rows found in CSV. Make sure each line is: Name,URL");
+                        console.warn("CSV parse result (no valid rows):", results.data);
+                        return;
+                    }
+
+                    // map to streams structure
+                    streams = valid.map((s, i) => ({
+                        id: "vid" + i,
+                        name: s.name,
+                        url: s.url,
+                        status: "init",
+                        error: ""
+                    }));
+
+                    console.log(`Loaded ${streams.length} streams from CSV:`, streams);
+                    applyLayout(); // render immediately
+                },
+                error: (err) => {
+                    console.error("PapaParse error:", err);
+                    alert("Failed to parse CSV: " + err.message);
+                }
+            });
+        });
+
+        function applyLayout() {
+            clearInterval(refreshTimer);
+            clearInterval(rotateTimer);
+
+            const rows = +document.getElementById("rows").value;
+            const cols = +document.getElementById("cols").value;
+            const refresh = +document.getElementById("refresh").value * 60000;
+            const rotate = document.getElementById("autoRotate").checked;
+            const rotateInterval = +document.getElementById("rotateInterval").value * 60000;
+            const perPage = rows * cols;
+
+            const useResponsive = document.getElementById("responsiveGrid").checked;
+            const grid = document.getElementById("grid");
+            grid.style.gridTemplateColumns = useResponsive
+                ? `repeat(auto-fit, minmax(300px, 1fr))`
+                : `repeat(${cols}, 1fr)`;
+
+            currentPage = 0;
+            showPage(perPage);
+
+            refreshTimer = setInterval(() => showPage(perPage), refresh);
+            if (rotate) rotateTimer = setInterval(() => nextPage(perPage), rotateInterval);
+        }
+
+
+        function showPage(perPage) {
+            const start = currentPage * perPage;
+            const end = start + perPage;
+            const grid = document.getElementById("grid");
+            grid.innerHTML = "";
+            const search = document.getElementById("searchBox").value.toLowerCase();
+
+            const pageStreams = streams
+                .filter(s => !search || s.name.toLowerCase().includes(search) || s.url.toLowerCase().includes(search))
+                .slice(start, end);
+
+            pageStreams.forEach(stream => {
+                const box = document.createElement("div");
+                box.className = `player-box ${stream.status}`;
+                box.id = `box-${stream.id}`;
+
+                const overlay = document.createElement("div");
+                overlay.className = "overlay-bar";
+                overlay.innerHTML = `
+          <span>${stream.name}</span>
+          <span>
+            <button onclick="captureScreenshot('${stream.id}', '${stream.name}')">📸</button>
+            <button onclick="copyToClipboard('${stream.url}')">🔗</button>
+          </span>`;
+
+                const video = document.createElement("video");
+                video.autoplay = true;
+                video.muted = isAllMuted;
+                video.controls = true;
+                video.playsInline = true;
+                video.id = stream.id;
+
+                box.appendChild(overlay);
+                box.appendChild(video);
+                grid.appendChild(box);
+
+                loadStream(video, stream);
+            });
+
+            document.getElementById("pageIndicator").textContent = `Page ${currentPage + 1}`;
+        }
+
+
+        function loadStream(video, stream) {
+            const ext = stream.url.split("?")[0].split(".").pop().toLowerCase();
+            const box = document.getElementById(`box-${stream.id}`);
+            stream.status = "init";
+            box.className = "player-box";
+
+            function updateStatus(state) {
+                stream.status = state;
+                box.className = `player-box ${state}`;
+                if (state === "error") {
+                    playAlarm();
+                    document.getElementById("monkey").textContent = "🙊";
+                } else {
+                    document.getElementById("monkey").textContent = "🙉";
+                }
+            }
+
+            async function fetchStatusAndLoad() {
+                try {
+                    const response = await fetch(stream.url, { method: "GET", mode: "cors" });
+                    if (!response.ok) {
+                        updateStatus("error");
+                        return;
+                    }
+                    loadPlayer();
+                } catch (err) {
+                    updateStatus("error");
+                }
+            }
+
+            function loadPlayer() {
+                if (ext === "m3u8" && Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(stream.url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => updateStatus("good"));
+                    hls.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) updateStatus("error");
+                    });
+                } else if (ext === "mpd") {
+                    const dash = dashjs.MediaPlayer().create();
+                    dash.initialize(video, stream.url, true);
+                    dash.attachTTMLRenderingDiv(document.createElement("div"));
+                    dash.on("streamInitialized", () => updateStatus("good"));
+                    dash.on("error", () => updateStatus("error"));
+                } else {
+                    video.src = stream.url;
+                    video.play();
+                }
+
+                video.onplay = () => updateStatus("good");
+                video.onwaiting = () => updateStatus("buffering");
+                video.onerror = () => updateStatus("error");
+            }
+
+            fetchStatusAndLoad();
+        }
+
+
+
+        function prevPage() {
+            const perPage = +document.getElementById("rows").value * +document.getElementById("cols").value;
+            if (currentPage > 0) currentPage--;
+            showPage(perPage);
+        }
+
+        function nextPage(perPage = +document.getElementById("rows").value * +document.getElementById("cols").value) {
+            const maxPage = Math.ceil(streams.length / perPage);
+            currentPage = (currentPage + 1) % maxPage;
+            showPage(perPage);
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle("dark-mode");
+            document.body.classList.toggle("light-mode");
+        }
+
+        function toggleAlarm() {
+            isAlarmMuted = !isAlarmMuted;
+            document.getElementById("alarmToggle").textContent = isAlarmMuted ? "🔕" : "🔔";
+        }
+
+        function toggleMuteAll() {
+            isAllMuted = !isAllMuted;
+            document.getElementById("muteToggle").textContent = isAllMuted ? "🔇" : "🔊";
+            streams.forEach(s => {
+                const v = document.getElementById(s.id);
+                if (v) v.muted = isAllMuted;
+            });
+        }
+
+        function togglePlayPause() {
+            isPaused = !isPaused;
+            document.getElementById("playToggle").textContent = isPaused ? "▶️" : "⏸️";
+            streams.forEach(s => {
+                const v = document.getElementById(s.id);
+                if (v) isPaused ? v.pause() : v.play();
+            });
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => alert("Copied!")).catch(() => { });
+        }
+
+        function captureScreenshot(id, name) {
+            const box = document.getElementById(`box-${id}`);
+            html2canvas(box).then(canvas => {
+                canvas.toBlob(blob => {
+                    const item = new ClipboardItem({ "image/png": blob });
+                    navigator.clipboard.write([item]).catch(() => {
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `${name}.png`;
+                        a.click();
+                    });
+                });
+            });
+        }
+
+        function copyShareLink() {
+            const csvText = streams.map(s => [s.name, s.url].join(",")).join("\n");
+            const encodedCSV = btoa(unescape(encodeURIComponent(csvText)));
+            const rows = document.getElementById("rows").value;
+            const cols = document.getElementById("cols").value;
+            const rotate = document.getElementById("autoRotate").checked ? 1 : 0;
+            const intv = document.getElementById("rotateInterval").value;
+            const refresh = document.getElementById("refresh").value;
+            const shareURL = `${location.href.split("?")[0]}?data=${encodedCSV}&rows=${rows}&cols=${cols}&rotate=${rotate}&int=${intv}&refresh=${refresh}`;
+            copyToClipboard(shareURL);
+        }
+
+
+        function parseURLParams() {
+            const params = new URLSearchParams(window.location.search);
+            const encoded = params.get("data");
+            if (encoded) {
+                const decoded = decodeURIComponent(escape(atob(encoded)));
+                const parsed = Papa.parse(decoded.trim()).data;
+                streams = parsed.map((r, i) => ({
+                    id: "vid" + i,
+                    name: r[0],
+                    url: r[1],
+                    status: "init",
+                    error: ""
+                }));
+                document.getElementById("rows").value = params.get("rows") || 2;
+                document.getElementById("cols").value = params.get("cols") || 2;
+                document.getElementById("autoRotate").checked = params.get("rotate") === "1";
+                document.getElementById("rotateInterval").value = params.get("int") || 5;
+                document.getElementById("refresh").value = params.get("refresh") || 5;
+                applyLayout();
+            }
+        }
+
+
+        function filterStreams() {
+            currentPage = 0;
+            applyLayout();
+        }
+
+        window.onload = parseURLParams;
+    </script>
+</body>
+</html>
